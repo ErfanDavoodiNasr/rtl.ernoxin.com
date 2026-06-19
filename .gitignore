@@ -1,0 +1,8 @@
+node_modules
+dist
+rtl.zip
+.DS_Store
+._*
+.idea
+*.local
+tsconfig.tsbuildinfo
