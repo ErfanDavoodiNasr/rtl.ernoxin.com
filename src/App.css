@@ -369,13 +369,19 @@
 
 .markdown-body pre {
     margin: 1.2em 0;
-    padding: 16px 20px;
-    background: var(--bg-input);
-    border: 1px solid var(--border);
+    padding: 0;
+    background: transparent;
+    border: none;
     border-radius: var(--radius-md);
     overflow-x: auto;
     direction: ltr;
     text-align: left;
+}
+
+.markdown-body pre > div {
+    margin: 0 !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--bg-input) !important;
 }
 
 .markdown-body pre code {
@@ -403,18 +409,33 @@
     margin: 1.6em 0;
 }
 
+.table-responsive {
+    width: 100%;
+    overflow-x: auto;
+    margin: 1.2em 0;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+}
+
 .markdown-body table {
     width: 100%;
     border-collapse: collapse;
-    margin: 1.2em 0;
+    margin: 0;
     font-size: 0.95rem;
+    min-width: max-content;
 }
 
 .markdown-body th,
 .markdown-body td {
     padding: 10px 14px;
-    border: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
     text-align: right;
+}
+
+.markdown-body th:last-child,
+.markdown-body td:last-child {
+    border-left: none;
 }
 
 .markdown-body th {
@@ -434,6 +455,13 @@
 .markdown-body em {
     font-style: italic;
     color: var(--text-secondary);
+}
+
+.markdown-body img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-sm);
+    margin: 1em 0;
 }
 
 .toast {

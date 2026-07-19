@@ -1,6 +1,10 @@
 import {useCallback, useEffect, useRef, useState} from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkBreaks from 'remark-breaks'
+import rehypeRaw from 'rehype-raw'
+import {Prism as SyntaxHighlighter} from 'react-syntax-highlighter'
+import {vs, vscDarkPlus} from 'react-syntax-highlighter/dist/esm/styles/prism'
 import Logo from './components/Logo'
 import './App.css'
 
@@ -165,7 +169,37 @@ export default function App() {
                                 </div>
                             ) : (
                                 <article className="markdown-body">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+                                    <ReactMarkdown
+                                        remarkPlugins={[remarkGfm, remarkBreaks]}
+                                        rehypePlugins={[rehypeRaw]}
+                                        components={{
+                                            table: ({node, ...props}) => (
+                                                <div className="table-responsive">
+                                                    <table {...props} />
+                                                </div>
+                                            ),
+                                            code(props) {
+                                                const {children, className, node, ref, ...rest} = props
+                                                const match = /language-(\w+)/.exec(className || '')
+                                                return match ? (
+                                                    <SyntaxHighlighter
+                                                        {...rest}
+                                                        PreTag="div"
+                                                        children={String(children).replace(/\n$/, '')}
+                                                        language={match[1]}
+                                                        style={theme === 'dark' ? vscDarkPlus : vs}
+                                                        dir="ltr"
+                                                    />
+                                                ) : (
+                                                    <code {...rest} className={className} ref={ref}>
+                                                        {children}
+                                                    </code>
+                                                )
+                                            }
+                                        }}
+                                    >
+                                        {text}
+                                    </ReactMarkdown>
                                 </article>
                             )}
                         </div>
