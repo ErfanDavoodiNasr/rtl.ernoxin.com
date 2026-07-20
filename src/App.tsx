@@ -61,7 +61,7 @@ function preprocessAsciiTables(text: string): string {
     };
 
     for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
+        let line = lines[i];
 
         if (line.trim().startsWith('```') || line.trim().startsWith('~~~')) {
             inCodeBlock = !inCodeBlock;
@@ -79,11 +79,17 @@ function preprocessAsciiTables(text: string): string {
             continue;
         }
 
+        // Fix for ChatGPT/Claude math delimiters
+        line = line.split('\\[').join('$$');
+        line = line.split('\\]').join('$$');
+        line = line.split('\\(').join('$');
+        line = line.split('\\)').join('$');
+        
         if (!inTable) {
-            if (isBorder(line) && i + 1 < lines.length && isData(lines[i + 1])) {
+            if (isBorder(line) && i + 1 < lines.length && isData(lines[i+1])) {
                 inTable = true;
                 tableLines.push(line);
-            } else if (isData(line) && i + 1 < lines.length && isBorder(lines[i + 1])) {
+            } else if (isData(line) && i + 1 < lines.length && isBorder(lines[i+1])) {
                 inTable = true;
                 tableLines.push(line);
             } else {
