@@ -378,10 +378,58 @@
     text-align: left;
 }
 
-.markdown-body pre > div {
-    margin: 0 !important;
-    border-radius: var(--radius-md) !important;
-    background: var(--bg-input) !important;
+.code-block-wrapper {
+    margin: 0;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: var(--bg-input);
+    overflow: hidden;
+    direction: ltr;
+}
+
+.code-block-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 16px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border);
+}
+
+.code-lang {
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.code-copy-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition);
+}
+
+.code-copy-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.code-copy-btn.copied {
+    color: #10b981;
+}
+
+.katex, .katex-display {
+    direction: ltr;
+    unicode-bidi: embed;
 }
 
 .markdown-body pre code {

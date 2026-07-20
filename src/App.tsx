@@ -3,9 +3,11 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import rehypeRaw from 'rehype-raw'
-import {Prism as SyntaxHighlighter} from 'react-syntax-highlighter'
-import {vs, vscDarkPlus} from 'react-syntax-highlighter/dist/esm/styles/prism'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
+import 'katex/dist/katex.min.css'
 import Logo from './components/Logo'
+import CodeBlock from './components/CodeBlock'
 import './App.css'
 
 type ViewMode = 'preview' | 'raw'
@@ -17,6 +19,93 @@ function getInitialTheme(): Theme {
     const saved = localStorage.getItem(THEME_KEY)
     if (saved === 'light' || saved === 'dark') return saved
     return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+}
+
+function preprocessAsciiTables(text: string): string {
+    const lines = text.split('\n');
+    const result: string[] = [];
+    let inTable = false;
+    let inCodeBlock = false;
+    let tableLines: string[] = [];
+
+    const isBorder = (line: string) => /(?=.*[\-\_])^[\+\-\_\|\s\=]+$/.test(line.trim());
+    const isData = (line: string) => {
+        const trimmed = line.trim();
+        if (!trimmed.includes('|')) return false;
+        if (isBorder(line)) return false;
+        const pipes = (trimmed.match(/\|/g) || []).length;
+        return pipes >= 2 || (trimmed.startsWith('|') && trimmed.endsWith('|'));
+    };
+
+    const processTable = (lines: string[]): string[] => {
+        const dataLines = lines.filter(line => !isBorder(line));
+        if (dataLines.length === 0) return lines;
+
+        const res: string[] = [];
+        let header = dataLines[0].trim();
+        if (!header.startsWith('|')) header = '| ' + header;
+        if (!header.endsWith('|')) header = header + ' |';
+        res.push(header);
+
+        const colCount = (header.match(/\|/g) || []).length - 1;
+        const separator = '|' + Array(Math.max(1, colCount)).fill('---').join('|') + '|';
+        res.push(separator);
+
+        for (let i = 1; i < dataLines.length; i++) {
+            let row = dataLines[i].trim();
+            if (!row.startsWith('|')) row = '| ' + row;
+            if (!row.endsWith('|')) row = row + ' |';
+            res.push(row);
+        }
+        return res;
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        if (line.trim().startsWith('```') || line.trim().startsWith('~~~')) {
+            inCodeBlock = !inCodeBlock;
+            if (inTable) {
+                result.push(...processTable(tableLines));
+                tableLines = [];
+                inTable = false;
+            }
+            result.push(line);
+            continue;
+        }
+
+        if (inCodeBlock) {
+            result.push(line);
+            continue;
+        }
+
+        if (!inTable) {
+            if (isBorder(line) && i + 1 < lines.length && isData(lines[i + 1])) {
+                inTable = true;
+                tableLines.push(line);
+            } else if (isData(line) && i + 1 < lines.length && isBorder(lines[i + 1])) {
+                inTable = true;
+                tableLines.push(line);
+            } else {
+                result.push(line);
+            }
+        } else {
+            if (isBorder(line) || isData(line)) {
+                tableLines.push(line);
+            } else {
+                result.push(...processTable(tableLines));
+                tableLines = [];
+                inTable = false;
+                result.push(line);
+            }
+        }
+    }
+
+    if (tableLines.length > 0) {
+        result.push(...processTable(tableLines));
+    }
+
+    return result.join('\n');
 }
 
 export default function App() {
@@ -170,8 +259,8 @@ export default function App() {
                             ) : (
                                 <article className="markdown-body">
                                     <ReactMarkdown
-                                        remarkPlugins={[remarkGfm, remarkBreaks]}
-                                        rehypePlugins={[rehypeRaw]}
+                                        remarkPlugins={[remarkGfm, remarkBreaks, remarkMath]}
+                                        rehypePlugins={[rehypeRaw, rehypeKatex]}
                                         components={{
                                             table: ({node, ...props}) => (
                                                 <div className="table-responsive">
@@ -182,13 +271,10 @@ export default function App() {
                                                 const {children, className, node, ref, ...rest} = props
                                                 const match = /language-(\w+)/.exec(className || '')
                                                 return match ? (
-                                                    <SyntaxHighlighter
-                                                        {...rest}
-                                                        PreTag="div"
-                                                        children={String(children).replace(/\n$/, '')}
+                                                    <CodeBlock
                                                         language={match[1]}
-                                                        style={theme === 'dark' ? vscDarkPlus : vs}
-                                                        dir="ltr"
+                                                        value={String(children).replace(/\n$/, '')}
+                                                        theme={theme}
                                                     />
                                                 ) : (
                                                     <code {...rest} className={className} ref={ref}>
@@ -198,7 +284,7 @@ export default function App() {
                                             }
                                         }}
                                     >
-                                        {text}
+                                        {preprocessAsciiTables(text)}
                                     </ReactMarkdown>
                                 </article>
                             )}
