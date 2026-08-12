@@ -31,9 +31,12 @@ export default function CodeBlock({language, value, theme}: CodeBlockProps) {
     const [copied, setCopied] = useState(false);
 
     const handleCopy = useCallback(() => {
+        if (!navigator.clipboard) return;
         navigator.clipboard.writeText(value).then(() => {
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
+        }).catch(() => {
+            // fallback if clipboard API fails
         });
     }, [value]);
 

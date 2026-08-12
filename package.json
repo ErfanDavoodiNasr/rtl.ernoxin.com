@@ -11,7 +11,10 @@
   },
   "dependencies": {
     "@fontsource/vazirmatn": "^5.2.8",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
     "katex": "^0.18.1",
+    "mermaid": "^11.16.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
@@ -23,6 +26,7 @@
     "remark-math": "^6.0.0"
   },
   "devDependencies": {
+    "@types/d3": "^7.4.3",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "@types/react-syntax-highlighter": "^15.5.13",
