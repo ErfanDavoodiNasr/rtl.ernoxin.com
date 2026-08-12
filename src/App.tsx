@@ -1,4 +1,13 @@
-import {useCallback, useEffect, useRef, useState} from 'react'
+import {
+    type HTMLAttributes,
+    type ReactNode,
+    useCallback,
+    useDeferredValue,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
@@ -11,111 +20,16 @@ import CodeBlock from './components/CodeBlock'
 import MermaidBlock from './components/MermaidBlock'
 import {exportAsHtml, exportAsMarkdown, exportAsPdf, exportAsPng} from './utils/exportUtils'
 import {isArabicText, isPureEnglish} from './utils/bidiUtils'
+import {preprocessMarkdown} from './utils/markdownUtils'
 import './App.css'
 
 type ViewMode = 'preview' | 'raw' | 'split'
 type Theme = 'dark' | 'light'
 
 const THEME_KEY = 'arnooxine-theme'
+const READER_SETTINGS_KEY = 'arnooxine-reader-settings'
 
-function getInitialTheme(): Theme {
-    const saved = localStorage.getItem(THEME_KEY)
-    if (saved === 'light' || saved === 'dark') return saved
-    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
-}
-
-function preprocessAsciiTables(text: string): string {
-    const lines = text.split('\n');
-    const result: string[] = [];
-    let inTable = false;
-    let inCodeBlock = false;
-    let tableLines: string[] = [];
-
-    const isBorder = (line: string) => /(?=.*[\-\_])^[\+\-\_\|\s\=]+$/.test(line.trim());
-    const isData = (line: string) => {
-        const trimmed = line.trim();
-        if (!trimmed.includes('|')) return false;
-        if (isBorder(line)) return false;
-        const pipes = (trimmed.match(/\|/g) || []).length;
-        return pipes >= 2 || (trimmed.startsWith('|') && trimmed.endsWith('|'));
-    };
-
-    const processTable = (lines: string[]): string[] => {
-        const dataLines = lines.filter(line => !isBorder(line));
-        if (dataLines.length === 0) return lines;
-
-        const res: string[] = [];
-        let header = dataLines[0].trim();
-        if (!header.startsWith('|')) header = '| ' + header;
-        if (!header.endsWith('|')) header = header + ' |';
-        res.push(header);
-
-        const colCount = (header.match(/\|/g) || []).length - 1;
-        const separator = '|' + Array(Math.max(1, colCount)).fill('---').join('|') + '|';
-        res.push(separator);
-
-        for (let i = 1; i < dataLines.length; i++) {
-            let row = dataLines[i].trim();
-            if (!row.startsWith('|')) row = '| ' + row;
-            if (!row.endsWith('|')) row = row + ' |';
-            res.push(row);
-        }
-        return res;
-    };
-
-    for (let i = 0; i < lines.length; i++) {
-        let line = lines[i];
-
-        if (line.trim().startsWith('```') || line.trim().startsWith('~~~')) {
-            inCodeBlock = !inCodeBlock;
-            if (inTable) {
-                result.push(...processTable(tableLines));
-                tableLines = [];
-                inTable = false;
-            }
-            result.push(line);
-            continue;
-        }
-
-        if (inCodeBlock) {
-            result.push(line);
-            continue;
-        }
-
-        // Fix for ChatGPT/Claude math delimiters
-        line = line.split('\\[').join('$$');
-        line = line.split('\\]').join('$$');
-        line = line.split('\\(').join('$');
-        line = line.split('\\)').join('$');
-
-        if (!inTable) {
-            if (isBorder(line) && i + 1 < lines.length && isData(lines[i + 1])) {
-                inTable = true;
-                tableLines.push(line);
-            } else if (isData(line) && i + 1 < lines.length && isBorder(lines[i + 1])) {
-                inTable = true;
-                tableLines.push(line);
-            } else {
-                result.push(line);
-            }
-        } else {
-            if (isBorder(line) || isData(line)) {
-                tableLines.push(line);
-            } else {
-                result.push(...processTable(tableLines));
-                tableLines = [];
-                inTable = false;
-                result.push(line);
-            }
-        }
-    }
-
-    if (tableLines.length > 0) {
-        result.push(...processTable(tableLines));
-    }
-
-    return result.join('\n');
-}
+const remarkPlugins = [remarkGfm, remarkBreaks, remarkMath]
 
 interface ReaderSettings {
     fontFamily: string
@@ -125,14 +39,22 @@ interface ReaderSettings {
     lineHeight: number
 }
 
-const READER_SETTINGS_KEY = 'arnooxine-reader-settings'
-
 const DEFAULT_SETTINGS: ReaderSettings = {
     fontFamily: 'Vazirmatn',
     fontFamilyEn: 'Inter',
     fontFamilyAr: 'Amiri',
     fontSize: 17,
     lineHeight: 2.0,
+}
+
+function getInitialTheme(): Theme {
+    try {
+        const saved = localStorage.getItem(THEME_KEY)
+        if (saved === 'light' || saved === 'dark') return saved
+        return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+    } catch {
+        return 'dark'
+    }
 }
 
 function getFontStack(font: string): string {
@@ -145,12 +67,10 @@ function getFontStack(font: string): string {
             return "'Sahel', 'Vazirmatn', sans-serif"
         case 'Lalezar':
             return "'Lalezar', cursive, sans-serif"
-        case 'Yekan':
-            return "'B Yekan', 'Yekan', 'Vazirmatn', sans-serif"
         case 'VazirCode':
             return "'Vazirmatn', monospace"
         case 'System':
-            return "system-ui, -apple-system, sans-serif"
+            return 'system-ui, -apple-system, sans-serif'
         case 'Vazirmatn':
         default:
             return "'Vazirmatn', 'Vazir', sans-serif"
@@ -188,11 +108,24 @@ function getFontStackAr(font: string): string {
 function getInitialReaderSettings(): ReaderSettings {
     try {
         const saved = localStorage.getItem(READER_SETTINGS_KEY)
-        if (saved) return {...DEFAULT_SETTINGS, ...JSON.parse(saved)}
+        if (saved) {
+            const parsed = JSON.parse(saved) as Partial<ReaderSettings>
+            // Migrate removed "Yekan" option to Vazirmatn
+            if (parsed.fontFamily === 'Yekan') parsed.fontFamily = 'Vazirmatn'
+            return {...DEFAULT_SETTINGS, ...parsed}
+        }
     } catch {
         // ignore
     }
     return DEFAULT_SETTINGS
+}
+
+function extractPlainText(children: unknown): string {
+    if (typeof children === 'string') return children
+    if (Array.isArray(children)) {
+        return children.map((c) => (typeof c === 'string' ? c : '')).join('')
+    }
+    return ''
 }
 
 export default function App() {
@@ -203,16 +136,31 @@ export default function App() {
     const [isExportOpen, setIsExportOpen] = useState(false)
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
     const [readerSettings, setReaderSettings] = useState<ReaderSettings>(getInitialReaderSettings)
+
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     const previewContentRef = useRef<HTMLDivElement>(null)
     const exportMenuRef = useRef<HTMLDivElement>(null)
     const settingsPopoverRef = useRef<HTMLDivElement>(null)
     const activeScrollRef = useRef<'textarea' | 'preview' | null>(null)
     const scrollTimeoutRef = useRef<number | null>(null)
+    const toastTimeoutRef = useRef<number | null>(null)
+
+    const deferredText = useDeferredValue(text)
+    const processedMarkdown = useMemo(() => preprocessMarkdown(deferredText), [deferredText])
+    const isEmpty = !text.trim()
+    const isPreviewStale = deferredText !== text
 
     const showToast = useCallback((message: string) => {
         setToast(message)
-        setTimeout(() => setToast(null), 2200)
+        if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current)
+        toastTimeoutRef.current = window.setTimeout(() => setToast(null), 2200)
+    }, [])
+
+    useEffect(() => {
+        return () => {
+            if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current)
+            if (scrollTimeoutRef.current) window.clearTimeout(scrollTimeoutRef.current)
+        }
     }, [])
 
     const toggleTheme = useCallback(() => {
@@ -221,7 +169,11 @@ export default function App() {
 
     useEffect(() => {
         document.documentElement.setAttribute('data-theme', theme)
-        localStorage.setItem(THEME_KEY, theme)
+        try {
+            localStorage.setItem(THEME_KEY, theme)
+        } catch {
+            // ignore quota / private mode
+        }
     }, [theme])
 
     useEffect(() => {
@@ -230,15 +182,20 @@ export default function App() {
         document.documentElement.style.setProperty('--preview-font-ar', getFontStackAr(readerSettings.fontFamilyAr))
         document.documentElement.style.setProperty('--preview-font-size', `${readerSettings.fontSize}px`)
         document.documentElement.style.setProperty('--preview-line-height', `${readerSettings.lineHeight}`)
-        localStorage.setItem(READER_SETTINGS_KEY, JSON.stringify(readerSettings))
+        try {
+            localStorage.setItem(READER_SETTINGS_KEY, JSON.stringify(readerSettings))
+        } catch {
+            // ignore
+        }
     }, [readerSettings])
 
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
-            if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+            const target = event.target as Node
+            if (exportMenuRef.current && !exportMenuRef.current.contains(target)) {
                 setIsExportOpen(false)
             }
-            if (settingsPopoverRef.current && !settingsPopoverRef.current.contains(event.target as Node)) {
+            if (settingsPopoverRef.current && !settingsPopoverRef.current.contains(target)) {
                 setIsSettingsOpen(false)
             }
         }
@@ -282,7 +239,7 @@ export default function App() {
 
         if (maxTextareaScroll > 0 && maxPreviewScroll > 0) {
             const percentage = preview.scrollTop / maxPreviewScroll
-            textarea.scrollTop = percentage * maxPreviewScroll
+            textarea.scrollTop = percentage * maxTextareaScroll
         }
 
         if (scrollTimeoutRef.current) window.clearTimeout(scrollTimeoutRef.current)
@@ -293,7 +250,7 @@ export default function App() {
 
     const handlePaste = useCallback(async () => {
         try {
-            if (!navigator.clipboard) throw new Error('No clipboard API')
+            if (!navigator.clipboard?.readText) throw new Error('No clipboard API')
             const clip = await navigator.clipboard.readText()
             if (clip) {
                 setText(clip)
@@ -316,49 +273,162 @@ export default function App() {
             if (format === 'md') {
                 exportAsMarkdown(text)
                 showToast('فایل Markdown دانلود شد')
-            } else if (format === 'html') {
-                if (previewContentRef.current) {
-                    exportAsHtml(previewContentRef.current, theme)
-                    showToast('فایل HTML دانلود شد')
-                }
+                return
+            }
+
+            // HTML/PDF/PNG need the rendered preview DOM
+            if (viewMode === 'raw') {
+                setViewMode('preview')
+                showToast('برای خروجی تصویری، به پیش‌نمایش بروید و دوباره تلاش کنید')
+                return
+            }
+
+            // Wait a frame so preview paint is ready after mode switches
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+
+            if (!previewContentRef.current) {
+                showToast('پیش‌نمایش آماده نیست؛ دوباره تلاش کنید')
+                return
+            }
+
+            if (format === 'html') {
+                exportAsHtml(previewContentRef.current, theme)
+                showToast('فایل HTML دانلود شد')
             } else if (format === 'pdf') {
-                if (previewContentRef.current) {
-                    showToast('در حال ساخت PDF...')
-                    await exportAsPdf(previewContentRef.current, theme)
-                    showToast('فایل PDF دانلود شد')
-                }
+                showToast('در حال ساخت PDF...')
+                await exportAsPdf(previewContentRef.current, theme)
+                showToast('فایل PDF دانلود شد')
             } else if (format === 'png') {
-                if (previewContentRef.current) {
-                    showToast('در حال ساخت تصویر...')
-                    await exportAsPng(previewContentRef.current, theme)
-                    showToast('تصویر PNG دانلود شد')
-                }
+                showToast('در حال ساخت تصویر...')
+                await exportAsPng(previewContentRef.current, theme)
+                showToast('تصویر PNG دانلود شد')
             }
         } catch (err) {
             console.error(err)
             showToast('خطا در دریافت خروجی')
         }
-    }, [text, theme, showToast])
+    }, [text, theme, showToast, viewMode])
 
-    const handleKeyDown = useCallback(
-        (e: KeyboardEvent) => {
+    useEffect(() => {
+        function handleKeyDown(e: KeyboardEvent) {
             if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                setViewMode((prev) => (prev === 'split' ? 'preview' : 'preview'))
+                e.preventDefault()
+                setViewMode('preview')
             }
-            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'v') {
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'v' || e.key === 'V')) {
                 e.preventDefault()
                 void handlePaste()
             }
-        },
-        [handlePaste],
-    )
+        }
 
-    useEffect(() => {
         window.addEventListener('keydown', handleKeyDown)
         return () => window.removeEventListener('keydown', handleKeyDown)
-    }, [handleKeyDown])
+    }, [handlePaste])
 
-    const isEmpty = !text.trim()
+    const markdownComponents = useMemo(() => ({
+        // Avoid invalid <pre><div> nesting from custom code blocks
+        pre: ({children}: { children?: ReactNode }) => <>{children}</>,
+        table: ({children, ...props}: HTMLAttributes<HTMLTableElement> & { children?: ReactNode }) => (
+            <div className="table-responsive">
+                <table {...props}>{children}</table>
+            </div>
+        ),
+        p: ({children, className, ...props}: HTMLAttributes<HTMLParagraphElement> & { children?: ReactNode }) => {
+            const textStr = extractPlainText(children)
+            const isEng = isPureEnglish(textStr)
+            const isAr = isArabicText(textStr)
+            let cls = className || ''
+            if (isEng) cls += ' bidi-ltr is-english'
+            else if (isAr) cls += ' is-arabic'
+
+            return (
+                <p
+                    dir="auto"
+                    className={cls.trim() || undefined}
+                    style={
+                        isAr
+                            ? {fontFamily: 'var(--preview-font-ar)'}
+                            : isEng
+                                ? {fontFamily: 'var(--preview-font-en)'}
+                                : undefined
+                    }
+                    {...props}
+                >
+                    {children}
+                </p>
+            )
+        },
+        li: ({children, className, ...props}: HTMLAttributes<HTMLLIElement> & { children?: ReactNode }) => {
+            const textStr = extractPlainText(children)
+            const isEng = isPureEnglish(textStr)
+            const isAr = isArabicText(textStr)
+            let cls = className || ''
+            if (isEng) cls += ' bidi-ltr is-english'
+            else if (isAr) cls += ' is-arabic'
+
+            return (
+                <li
+                    dir="auto"
+                    className={cls.trim() || undefined}
+                    style={
+                        isAr
+                            ? {fontFamily: 'var(--preview-font-ar)'}
+                            : isEng
+                                ? {fontFamily: 'var(--preview-font-en)'}
+                                : undefined
+                    }
+                    {...props}
+                >
+                    {children}
+                </li>
+            )
+        },
+        h1: ({children, ...props}: HTMLAttributes<HTMLHeadingElement> & { children?: ReactNode }) => (
+            <h1 dir="auto" {...props}>{children}</h1>
+        ),
+        h2: ({children, ...props}: HTMLAttributes<HTMLHeadingElement> & { children?: ReactNode }) => (
+            <h2 dir="auto" {...props}>{children}</h2>
+        ),
+        h3: ({children, ...props}: HTMLAttributes<HTMLHeadingElement> & { children?: ReactNode }) => (
+            <h3 dir="auto" {...props}>{children}</h3>
+        ),
+        h4: ({children, ...props}: HTMLAttributes<HTMLHeadingElement> & { children?: ReactNode }) => (
+            <h4 dir="auto" {...props}>{children}</h4>
+        ),
+        blockquote: ({children, ...props}: HTMLAttributes<HTMLQuoteElement> & { children?: ReactNode }) => (
+            <blockquote dir="auto" {...props}>{children}</blockquote>
+        ),
+        code({children, className, ...rest}: HTMLAttributes<HTMLElement> & {
+            children?: ReactNode
+            className?: string
+            node?: unknown
+        }) {
+            const match = /(?:^|\s)language-([^\s]+)/.exec(className || '')
+            const language = match ? match[1] : ''
+            const content = String(children ?? '').replace(/\n$/, '')
+            const isMultiLine = content.includes('\n') || Boolean(match)
+
+            if (language === 'mermaid') {
+                return <MermaidBlock chart={content} theme={theme}/>
+            }
+
+            if (match || isMultiLine) {
+                return (
+                    <CodeBlock
+                        language={language || 'text'}
+                        value={content}
+                        theme={theme}
+                    />
+                )
+            }
+
+            return (
+                <code {...rest} className={className}>
+                    {children}
+                </code>
+            )
+        },
+    }), [theme])
 
     const renderInputPanel = (
         <section className="panel panel-input" aria-label="ورودی متن">
@@ -387,7 +457,7 @@ export default function App() {
             <div
                 ref={previewContentRef}
                 onScroll={handlePreviewScroll}
-                className={`preview-content ${isEmpty ? 'empty' : ''}`}
+                className={`preview-content ${isEmpty ? 'empty' : ''} ${isPreviewStale ? 'is-stale' : ''}`}
                 dir="rtl"
             >
                 {isEmpty ? (
@@ -408,98 +478,11 @@ export default function App() {
                 ) : (
                     <article className="markdown-body">
                         <ReactMarkdown
-                            remarkPlugins={[remarkGfm, remarkBreaks, remarkMath]}
-                            rehypePlugins={[rehypeRaw, rehypeKatex]}
-                            components={{
-                                table: ({node, ...props}) => (
-                                    <div className="table-responsive">
-                                        <table {...props} />
-                                    </div>
-                                ),
-                                p: ({node, ...props}) => {
-                                    const textStr = Array.isArray(props.children)
-                                        ? props.children.map(c => typeof c === 'string' ? c : '').join('')
-                                        : typeof props.children === 'string' ? props.children : ''
-                                    const isEng = isPureEnglish(textStr)
-                                    const isAr = isArabicText(textStr)
-                                    let className = props.className || ''
-                                    if (isEng) className += ' bidi-ltr is-english'
-                                    else if (isAr) className += ' is-arabic'
-
-                                    return (
-                                        <p
-                                            dir="auto"
-                                            className={className.trim()}
-                                            style={
-                                                isAr
-                                                    ? {fontFamily: 'var(--preview-font-ar)'}
-                                                    : isEng
-                                                        ? {fontFamily: 'var(--preview-font-en)'}
-                                                        : undefined
-                                            }
-                                            {...props}
-                                        />
-                                    )
-                                },
-                                li: ({node, ...props}) => {
-                                    const textStr = Array.isArray(props.children)
-                                        ? props.children.map(c => typeof c === 'string' ? c : '').join('')
-                                        : typeof props.children === 'string' ? props.children : ''
-                                    const isEng = isPureEnglish(textStr)
-                                    const isAr = isArabicText(textStr)
-                                    let className = props.className || ''
-                                    if (isEng) className += ' bidi-ltr is-english'
-                                    else if (isAr) className += ' is-arabic'
-
-                                    return (
-                                        <li
-                                            dir="auto"
-                                            className={className.trim()}
-                                            style={
-                                                isAr
-                                                    ? {fontFamily: 'var(--preview-font-ar)'}
-                                                    : isEng
-                                                        ? {fontFamily: 'var(--preview-font-en)'}
-                                                        : undefined
-                                            }
-                                            {...props}
-                                        />
-                                    )
-                                },
-                                h1: ({node, ...props}) => <h1 dir="auto" {...props} />,
-                                h2: ({node, ...props}) => <h2 dir="auto" {...props} />,
-                                h3: ({node, ...props}) => <h3 dir="auto" {...props} />,
-                                h4: ({node, ...props}) => <h4 dir="auto" {...props} />,
-                                blockquote: ({node, ...props}) => <blockquote dir="auto" {...props} />,
-                                code(props) {
-                                    const {children, className, node, ref, ...rest} = props
-                                    const match = /language-(\w+)/.exec(className || '')
-                                    const language = match ? match[1] : ''
-
-                                    if (language === 'mermaid') {
-                                        return (
-                                            <MermaidBlock
-                                                chart={String(children).replace(/\n$/, '')}
-                                                theme={theme}
-                                            />
-                                        )
-                                    }
-
-                                    return match ? (
-                                        <CodeBlock
-                                            language={language}
-                                            value={String(children).replace(/\n$/, '')}
-                                            theme={theme}
-                                        />
-                                    ) : (
-                                        <code {...rest} className={className} ref={ref}>
-                                            {children}
-                                        </code>
-                                    )
-                                }
-                            }}
+                            remarkPlugins={remarkPlugins}
+                            rehypePlugins={[rehypeRaw, [rehypeKatex, {strict: false, throwOnError: false}]]}
+                            components={markdownComponents}
                         >
-                            {preprocessAsciiTables(text)}
+                            {processedMarkdown}
                         </ReactMarkdown>
                     </article>
                 )}
@@ -523,7 +506,7 @@ export default function App() {
                         <button
                             type="button"
                             className="btn btn-ghost"
-                            onClick={() => setIsSettingsOpen(prev => !prev)}
+                            onClick={() => setIsSettingsOpen((prev) => !prev)}
                             title="تنظیمات ظاهر و تایپوگرافی"
                         >
                             <SlidersIcon/>
@@ -538,9 +521,9 @@ export default function App() {
                                     <select
                                         className="settings-select"
                                         value={readerSettings.fontFamily}
-                                        onChange={(e) => setReaderSettings(prev => ({
+                                        onChange={(e) => setReaderSettings((prev) => ({
                                             ...prev,
-                                            fontFamily: e.target.value
+                                            fontFamily: e.target.value,
                                         }))}
                                     >
                                         <option value="Vazirmatn">وزیرمتن (پیش‌فرض)</option>
@@ -548,7 +531,6 @@ export default function App() {
                                         <option value="Samim">صمیم</option>
                                         <option value="Sahel">ساحل</option>
                                         <option value="Lalezar">لاله‌زار</option>
-                                        <option value="Yekan">یکان</option>
                                         <option value="VazirCode">وزیر کد (کدنویسی)</option>
                                         <option value="System">فونت سیستم</option>
                                     </select>
@@ -561,9 +543,9 @@ export default function App() {
                                     <select
                                         className="settings-select"
                                         value={readerSettings.fontFamilyEn || 'Inter'}
-                                        onChange={(e) => setReaderSettings(prev => ({
+                                        onChange={(e) => setReaderSettings((prev) => ({
                                             ...prev,
-                                            fontFamilyEn: e.target.value
+                                            fontFamilyEn: e.target.value,
                                         }))}
                                     >
                                         <option value="Inter">Inter (پیش‌فرض)</option>
@@ -581,9 +563,9 @@ export default function App() {
                                     <select
                                         className="settings-select"
                                         value={readerSettings.fontFamilyAr || 'Amiri'}
-                                        onChange={(e) => setReaderSettings(prev => ({
+                                        onChange={(e) => setReaderSettings((prev) => ({
                                             ...prev,
-                                            fontFamilyAr: e.target.value
+                                            fontFamilyAr: e.target.value,
                                         }))}
                                     >
                                         <option value="Amiri">امیری - Amiri (پیش‌فرض)</option>
@@ -599,9 +581,9 @@ export default function App() {
                                     <select
                                         className="settings-select"
                                         value={readerSettings.fontSize}
-                                        onChange={(e) => setReaderSettings(prev => ({
+                                        onChange={(e) => setReaderSettings((prev) => ({
                                             ...prev,
-                                            fontSize: Number(e.target.value)
+                                            fontSize: Number(e.target.value),
                                         }))}
                                     >
                                         <option value={15}>۱۵px (کوچک)</option>
@@ -619,9 +601,9 @@ export default function App() {
                                     <select
                                         className="settings-select"
                                         value={readerSettings.lineHeight}
-                                        onChange={(e) => setReaderSettings(prev => ({
+                                        onChange={(e) => setReaderSettings((prev) => ({
                                             ...prev,
-                                            lineHeight: Number(e.target.value)
+                                            lineHeight: Number(e.target.value),
                                         }))}
                                     >
                                         <option value={1.6}>۱.۶ (متراکم)</option>
@@ -639,7 +621,7 @@ export default function App() {
                         <button
                             type="button"
                             className="btn btn-ghost"
-                            onClick={() => setIsExportOpen(prev => !prev)}
+                            onClick={() => setIsExportOpen((prev) => !prev)}
                             disabled={isEmpty}
                             title="خروجی و دانلود"
                         >
@@ -649,35 +631,22 @@ export default function App() {
                         </button>
                         {isExportOpen && (
                             <div className="dropdown-menu" role="menu">
-                                <button
-                                    type="button"
-                                    className="dropdown-item"
-                                    onClick={() => void handleExport('md')}
-                                >
+                                <button type="button" className="dropdown-item" onClick={() => void handleExport('md')}>
                                     <FileTextIcon/>
                                     <span>فایل Markdown (.md)</span>
                                 </button>
-                                <button
-                                    type="button"
-                                    className="dropdown-item"
-                                    onClick={() => void handleExport('html')}
-                                >
+                                <button type="button" className="dropdown-item"
+                                        onClick={() => void handleExport('html')}>
                                     <CodeIcon/>
                                     <span>فایل وب (.html)</span>
                                 </button>
-                                <button
-                                    type="button"
-                                    className="dropdown-item"
-                                    onClick={() => void handleExport('pdf')}
-                                >
+                                <button type="button" className="dropdown-item"
+                                        onClick={() => void handleExport('pdf')}>
                                     <PdfIcon/>
                                     <span>سند PDF (.pdf)</span>
                                 </button>
-                                <button
-                                    type="button"
-                                    className="dropdown-item"
-                                    onClick={() => void handleExport('png')}
-                                >
+                                <button type="button" className="dropdown-item"
+                                        onClick={() => void handleExport('png')}>
                                     <ImageIcon/>
                                     <span>تصویر PNG (.png)</span>
                                 </button>

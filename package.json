@@ -10,10 +10,18 @@
     "preview": "vite preview --port 1000 --host"
   },
   "dependencies": {
+    "@fontsource/amiri": "^5.3.0",
+    "@fontsource/cairo": "^5.3.0",
+    "@fontsource/fira-code": "^5.3.0",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/outfit": "^5.3.0",
+    "@fontsource/roboto": "^5.3.0",
+    "@fontsource/scheherazade-new": "^5.3.0",
     "@fontsource/vazirmatn": "^5.2.8",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
-    "katex": "^0.18.1",
+    "katex": "0.16.47",
     "mermaid": "^11.16.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -33,5 +41,8 @@
     "@vitejs/plugin-react": "^4.4.1",
     "typescript": "^5.8.3",
     "vite": "^6.3.5"
+  },
+  "overrides": {
+    "katex": "0.16.47"
   }
 }

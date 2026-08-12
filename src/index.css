@@ -2,7 +2,39 @@
 @import '@fontsource/vazirmatn/500.css';
 @import '@fontsource/vazirmatn/600.css';
 @import '@fontsource/vazirmatn/700.css';
-@import url('https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&family=Cairo:wght@400;600;700&family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700&family=Roboto:wght@400;500;700&family=Scheherazade+New:wght@400;700&display=swap');
+
+@import '@fontsource/amiri/400.css';
+@import '@fontsource/amiri/400-italic.css';
+@import '@fontsource/amiri/700.css';
+
+@import '@fontsource/cairo/400.css';
+@import '@fontsource/cairo/600.css';
+@import '@fontsource/cairo/700.css';
+
+@import '@fontsource/fira-code/400.css';
+@import '@fontsource/fira-code/500.css';
+@import '@fontsource/fira-code/600.css';
+
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';
+
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '@fontsource/jetbrains-mono/600.css';
+
+@import '@fontsource/outfit/400.css';
+@import '@fontsource/outfit/500.css';
+@import '@fontsource/outfit/600.css';
+@import '@fontsource/outfit/700.css';
+
+@import '@fontsource/roboto/400.css';
+@import '@fontsource/roboto/500.css';
+@import '@fontsource/roboto/700.css';
+
+@import '@fontsource/scheherazade-new/400.css';
+@import '@fontsource/scheherazade-new/700.css';
 
 @font-face {
     font-family: 'Shabnam';
@@ -71,7 +103,7 @@
 :root,
 [data-theme='dark'] {
     --font-fa: 'Vazirmatn', 'Vazir', 'Tahoma', sans-serif;
-    --font-mono: 'Vazirmatn', 'Vazir', 'SF Mono', monospace;
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Vazirmatn', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
     --preview-font-family: 'Vazirmatn', 'Vazir', sans-serif;
     --preview-font-en: 'Inter', sans-serif;

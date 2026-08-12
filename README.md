@@ -1,6 +1,7 @@
 # نمایشگر فارسی ارنوکسین
 
-نمایش راست‌چین متن فارسی با فونت وزیر — تم روشن/تاریک، پشتیبانی Markdown.
+نمایش راست‌چین متن فارسی با فونت‌های محلی، رندر فرمول KaTeX، هایلایت کد، جدول و Mermaid — بدون CDN و بدون وابستگی به API
+خارجی.
 
 ## توسعه
 
@@ -16,6 +17,8 @@ npm run dev:safe
 1. برو [Releases](https://github.com/ErfanDavoodiNasr/rtl.ernoxin.com/releases) و **`rtl.zip`** آخرین نسخه را دانلود کن
 2. در cPanel → **File Manager** → `public_html` → zip را آپلود و **Extract** کن
 3. `index.html` باید مستقیم داخل `public_html` باشد
+
+همه فونت‌ها، KaTeX، هایلایتر کد و اسکریپت‌ها داخل همین zip هستند و برای اجرا به اینترنت نیاز نیست.
 
 ## میانبرها
 

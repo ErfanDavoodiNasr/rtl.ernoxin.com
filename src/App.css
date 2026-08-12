@@ -395,7 +395,26 @@
 }
 
 .markdown-body .is-english {
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-family: var(--preview-font-en);
+}
+
+.markdown-body .is-arabic {
+    font-family: var(--preview-font-ar);
+}
+
+.preview-content.is-stale {
+    opacity: 0.92;
+    transition: opacity 0.15s ease;
+}
+
+.mermaid-loading {
+    min-height: 72px;
+    align-items: center;
+}
+
+.mermaid-loading-text {
+    color: var(--text-muted);
+    font-size: 0.85rem;
 }
 
 .settings-popover {
@@ -538,15 +557,16 @@
     color: var(--text-secondary);
 }
 
-.markdown-body code {
+.markdown-body :not(pre) > code {
     font-family: var(--font-mono);
     font-size: 0.9em;
     background: var(--bg-code-inline);
     padding: 2px 7px;
     border-radius: 5px;
     direction: ltr;
-    unicode-bidi: embed;
-    display: inline-block;
+    unicode-bidi: isolate;
+    display: inline;
+    white-space: break-spaces;
 }
 
 .markdown-body pre {
@@ -558,6 +578,7 @@
     overflow-x: auto;
     direction: ltr;
     text-align: left;
+    width: 100%;
 }
 
 .mermaid-block-wrapper {
@@ -608,21 +629,30 @@
 }
 
 .code-block-wrapper {
-    margin: 0;
+    margin: 1.2em 0;
+    width: 100%;
+    max-width: 100%;
     border-radius: var(--radius-md);
     border: 1px solid var(--border);
     background: var(--bg-input);
     overflow: hidden;
     direction: ltr;
+    text-align: left;
+    unicode-bidi: isolate;
+    display: block;
+    box-sizing: border-box;
 }
 
 .code-block-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 8px 16px;
+    gap: 12px;
+    width: 100%;
+    padding: 8px 14px;
     background: var(--bg-elevated);
     border-bottom: 1px solid var(--border);
+    box-sizing: border-box;
 }
 
 .code-lang {
@@ -631,10 +661,11 @@
     color: var(--text-muted);
     text-transform: uppercase;
     font-weight: 600;
+    letter-spacing: 0.04em;
 }
 
 .code-copy-btn {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 6px;
     font-size: 0.75rem;
@@ -645,6 +676,8 @@
     padding: 4px 8px;
     border-radius: var(--radius-sm);
     transition: all var(--transition);
+    flex-shrink: 0;
+    font-family: var(--font-fa);
 }
 
 .code-copy-btn:hover {
@@ -656,9 +689,74 @@
     color: #10b981;
 }
 
-.katex, .katex-display {
+.code-block-body {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    box-sizing: border-box;
+    background: var(--bg-input);
+}
+
+/* Force Prism/highlighter output to fill the block (fixes shrink-to-content bug) */
+.code-block-body > div {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 100% !important;
+    margin: 0 !important;
+    padding: 14px 16px !important;
+    box-sizing: border-box !important;
+    display: block !important;
+    direction: ltr !important;
+    text-align: left !important;
+    unicode-bidi: isolate !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    overflow-x: auto !important;
+    font-family: var(--font-mono) !important;
+    font-size: 0.875rem !important;
+    line-height: 1.7 !important;
+}
+
+.code-block-body code {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    font-family: inherit !important;
+    font-size: inherit !important;
+    line-height: inherit !important;
+    white-space: pre !important;
+    word-break: normal !important;
+    overflow-wrap: normal !important;
+    direction: ltr !important;
+    text-align: left !important;
+    unicode-bidi: isolate !important;
+    tab-size: 4;
+}
+
+.code-block-body .token {
+    unicode-bidi: isolate;
+}
+
+.katex {
     direction: ltr;
-    unicode-bidi: embed;
+    unicode-bidi: isolate;
+    font-size: 1.05em;
+}
+
+.katex-display {
+    direction: ltr;
+    unicode-bidi: isolate;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px 0;
+    margin: 1em 0;
+    max-width: 100%;
 }
 
 .markdown-body pre code {
@@ -667,6 +765,7 @@
     font-size: 0.875rem;
     line-height: 1.7;
     display: block;
+    width: 100%;
 }
 
 .markdown-body a {

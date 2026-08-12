@@ -1,56 +1,75 @@
-import {useEffect, useRef, useState} from 'react'
-import mermaid from 'mermaid'
+import {useEffect, useId, useState} from 'react'
 
 interface MermaidBlockProps {
     chart: string
     theme: 'dark' | 'light'
 }
 
-let mermaidIdCounter = 0
+let mermaidReady: Promise<typeof import('mermaid').default> | null = null
+let lastTheme: 'dark' | 'light' | null = null
 
-export default function MermaidBlock({chart, theme}: MermaidBlockProps) {
-    const containerRef = useRef<HTMLDivElement>(null)
-    const [svgContent, setSvgContent] = useState<string>('')
-    const [error, setError] = useState<string | null>(null)
-
-    useEffect(() => {
-        let isMounted = true
-        const uniqueId = `mermaid-svg-${Date.now()}-${++mermaidIdCounter}`
-
+async function getMermaid(theme: 'dark' | 'light') {
+    if (!mermaidReady) {
+        mermaidReady = import('mermaid').then((mod) => mod.default)
+    }
+    const mermaid = await mermaidReady
+    if (lastTheme !== theme) {
         mermaid.initialize({
             startOnLoad: false,
             theme: theme === 'dark' ? 'dark' : 'default',
             fontFamily: 'Vazirmatn, sans-serif',
-            securityLevel: 'loose',
+            securityLevel: 'strict',
         })
+        lastTheme = theme
+    }
+    return mermaid
+}
+
+export default function MermaidBlock({chart, theme}: MermaidBlockProps) {
+    const reactId = useId().replace(/:/g, '')
+    const [svgContent, setSvgContent] = useState('')
+    const [error, setError] = useState<string | null>(null)
+
+    useEffect(() => {
+        let cancelled = false
+        const uniqueId = `mermaid-${reactId}-${Date.now()}`
 
         const renderChart = async () => {
             try {
-                if (!chart.trim()) return
+                if (!chart.trim()) {
+                    if (!cancelled) {
+                        setSvgContent('')
+                        setError(null)
+                    }
+                    return
+                }
 
+                const mermaid = await getMermaid(theme)
                 const {svg} = await mermaid.render(uniqueId, chart)
-                if (isMounted) {
+                if (!cancelled) {
                     setSvgContent(svg)
                     setError(null)
                 }
-            } catch (err: any) {
-                if (isMounted) {
-                    console.error('Mermaid Render Error:', err)
-                    setError(err?.message || 'خطا در رندر نمودار Mermaid')
+            } catch (err: unknown) {
+                if (!cancelled) {
+                    const message = err instanceof Error ? err.message : 'خطا در رندر نمودار Mermaid'
+                    setError(message)
+                    setSvgContent('')
                 }
+                // Mermaid may leave temporary error DOM nodes
+                document.getElementById(uniqueId)?.remove()
+                document.getElementById(`d${uniqueId}`)?.remove()
             }
         }
 
-        renderChart()
+        void renderChart()
 
         return () => {
-            isMounted = false
-            const tempEl = document.getElementById(uniqueId)
-            if (tempEl) tempEl.remove()
-            const errEl = document.getElementById(`d${uniqueId}`)
-            if (errEl) errEl.remove()
+            cancelled = true
+            document.getElementById(uniqueId)?.remove()
+            document.getElementById(`d${uniqueId}`)?.remove()
         }
-    }, [chart, theme])
+    }, [chart, theme, reactId])
 
     if (error) {
         return (
@@ -63,10 +82,17 @@ export default function MermaidBlock({chart, theme}: MermaidBlockProps) {
         )
     }
 
+    if (!svgContent) {
+        return (
+            <div className="mermaid-block-wrapper mermaid-loading" dir="ltr" aria-busy="true">
+                <span className="mermaid-loading-text">در حال رسم نمودار…</span>
+            </div>
+        )
+    }
+
     return (
         <div className="mermaid-block-wrapper" dir="ltr">
             <div
-                ref={containerRef}
                 className="mermaid-svg-container"
                 dangerouslySetInnerHTML={{__html: svgContent}}
             />
