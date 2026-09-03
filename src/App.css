@@ -310,7 +310,7 @@
     color: var(--text-primary);
     border: none;
     resize: none;
-    font-family: var(--preview-font-family, var(--font-fa));
+    font-family: 'Vazirmatn', var(--font-fa);
     font-size: var(--preview-font-size, 1.05rem);
     line-height: var(--preview-line-height, 2);
     direction: rtl;
@@ -384,14 +384,82 @@
     color: var(--text-primary);
     direction: rtl;
     text-align: right;
-    unicode-bidi: plaintext;
+    unicode-bidi: isolate;
     word-break: break-word;
 }
 
-.markdown-body [dir="auto"]:dir(ltr),
-.markdown-body .bidi-ltr {
+.markdown-body [dir="ltr"]:not(li),
+.markdown-body :not(li).bidi-ltr {
     direction: ltr;
     text-align: left;
+}
+
+.markdown-body [dir="rtl"]:not(li):not(td):not(th) {
+    direction: rtl;
+    text-align: right;
+}
+
+/* Custom markers — always on the right in this Persian-first UI */
+.markdown-body ul,
+.markdown-body ol {
+    margin: 0.8em 0;
+    padding: 0 1.5em 0 0;
+    list-style: none;
+}
+
+.markdown-body ol {
+    counter-reset: fa-item;
+}
+
+.markdown-body li {
+    position: relative;
+    direction: rtl;
+    text-align: right;
+    margin: 0.4em 0;
+}
+
+.markdown-body ul > li::before {
+    content: '•';
+    position: absolute;
+    right: -1.15em;
+    left: auto;
+    top: 0;
+    color: var(--text-secondary);
+}
+
+.markdown-body ol > li {
+    counter-increment: fa-item;
+}
+
+.markdown-body ol > li::before {
+    content: counter(fa-item) '.';
+    position: absolute;
+    right: -1.45em;
+    left: auto;
+    top: 0;
+    color: var(--text-secondary);
+    font-feature-settings: 'tnum';
+}
+
+.markdown-body li .bidi-item-text {
+    unicode-bidi: isolate;
+    display: block;
+}
+
+.markdown-body li .bidi-item-text[dir='ltr'] {
+    direction: ltr;
+    text-align: left;
+}
+
+.markdown-body li .bidi-item-text[dir='rtl'] {
+    direction: rtl;
+    text-align: right;
+}
+
+.markdown-body blockquote.bidi-ltr {
+    border-left: 3px solid var(--accent);
+    border-right: none;
+    border-radius: var(--radius-sm) 0 0 var(--radius-sm);
 }
 
 .markdown-body .is-english {
@@ -529,17 +597,6 @@
 
 .markdown-body p {
     margin: 0.8em 0;
-}
-
-.markdown-body ul,
-.markdown-body ol {
-    margin: 0.8em 0;
-    padding-right: 1.6em;
-    padding-left: 0;
-}
-
-.markdown-body li {
-    margin: 0.4em 0;
 }
 
 .markdown-body li > ul,
@@ -806,7 +863,8 @@
     padding: 10px 14px;
     border-bottom: 1px solid var(--border);
     border-right: 1px solid var(--border);
-    text-align: right;
+    text-align: center !important;
+    vertical-align: middle;
 }
 
 .markdown-body th:last-child,

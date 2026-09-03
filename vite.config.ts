@@ -10,27 +10,34 @@ export default defineConfig({
     },
     build: {
         target: 'es2022',
+        sourcemap: false,
         cssCodeSplit: true,
+        modulePreload: {
+            resolveDependencies: (_filename, deps) =>
+                deps.filter(
+                    (dep) =>
+                        !/(mermaid|katex|html2canvas|jspdf|CodeBlock|MarkdownPreview|exportUtils|syntax)/.test(
+                            dep,
+                        ),
+                ),
+        },
         rollupOptions: {
             output: {
                 manualChunks(id) {
-                    if (id.includes('node_modules/mermaid') || id.includes('node_modules/cytoscape')) {
-                        return 'mermaid'
-                    }
-                    if (id.includes('node_modules/katex')) {
-                        return 'katex'
-                    }
-                    if (id.includes('node_modules/react-syntax-highlighter') || id.includes('node_modules/refractor') || id.includes('node_modules/prismjs')) {
-                        return 'syntax'
-                    }
-                    if (id.includes('node_modules/html2canvas') || id.includes('node_modules/jspdf')) {
-                        return 'export'
+                    // Only pin React. Other heavy libs must stay behind dynamic import()
+                    // so Rollup never parks shared helpers inside katex/export/mermaid.
+                    if (
+                        id.includes('node_modules/react-dom') ||
+                        id.includes('/node_modules/react/') ||
+                        id.includes('node_modules/scheduler')
+                    ) {
+                        return 'react'
                     }
                 },
             },
         },
     },
     optimizeDeps: {
-        include: ['katex', 'rehype-katex', 'remark-math'],
+        include: ['react', 'react-dom', 'react-markdown', 'remark-gfm'],
     },
 })

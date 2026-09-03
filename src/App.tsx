@@ -1,61 +1,24 @@
-import {
-    type HTMLAttributes,
-    type ReactNode,
-    useCallback,
-    useDeferredValue,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
-} from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import remarkBreaks from 'remark-breaks'
-import rehypeRaw from 'rehype-raw'
-import remarkMath from 'remark-math'
-import rehypeKatex from 'rehype-katex'
-import 'katex/dist/katex.min.css'
+import {lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState,} from 'react'
 import Logo from './components/Logo'
-import CodeBlock from './components/CodeBlock'
-import MermaidBlock from './components/MermaidBlock'
-import {exportAsHtml, exportAsMarkdown, exportAsPdf, exportAsPng} from './utils/exportUtils'
-import {isArabicText, isPureEnglish} from './utils/bidiUtils'
+import {loadFontsForSettings} from './utils/fontLoader'
+import {countMermaidBlocks, waitForMermaidReady, waitForPreviewSync,} from './utils/previewReady'
 import {preprocessMarkdown} from './utils/markdownUtils'
+import {
+    loadContent,
+    loadReaderSettings,
+    loadTheme,
+    type ReaderSettings,
+    saveContent,
+    saveReaderSettings,
+    saveTheme,
+    type Theme,
+} from './utils/storageUtils'
 import './App.css'
 
+const MarkdownPreview = lazy(() => import('./components/MarkdownPreview'))
+
+
 type ViewMode = 'preview' | 'raw' | 'split'
-type Theme = 'dark' | 'light'
-
-const THEME_KEY = 'arnooxine-theme'
-const READER_SETTINGS_KEY = 'arnooxine-reader-settings'
-
-const remarkPlugins = [remarkGfm, remarkBreaks, remarkMath]
-
-interface ReaderSettings {
-    fontFamily: string
-    fontFamilyEn: string
-    fontFamilyAr: string
-    fontSize: number
-    lineHeight: number
-}
-
-const DEFAULT_SETTINGS: ReaderSettings = {
-    fontFamily: 'Vazirmatn',
-    fontFamilyEn: 'Inter',
-    fontFamilyAr: 'Amiri',
-    fontSize: 17,
-    lineHeight: 2.0,
-}
-
-function getInitialTheme(): Theme {
-    try {
-        const saved = localStorage.getItem(THEME_KEY)
-        if (saved === 'light' || saved === 'dark') return saved
-        return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
-    } catch {
-        return 'dark'
-    }
-}
 
 function getFontStack(font: string): string {
     switch (font) {
@@ -105,43 +68,22 @@ function getFontStackAr(font: string): string {
     }
 }
 
-function getInitialReaderSettings(): ReaderSettings {
-    try {
-        const saved = localStorage.getItem(READER_SETTINGS_KEY)
-        if (saved) {
-            const parsed = JSON.parse(saved) as Partial<ReaderSettings>
-            // Migrate removed "Yekan" option to Vazirmatn
-            if (parsed.fontFamily === 'Yekan') parsed.fontFamily = 'Vazirmatn'
-            return {...DEFAULT_SETTINGS, ...parsed}
-        }
-    } catch {
-        // ignore
-    }
-    return DEFAULT_SETTINGS
-}
-
-function extractPlainText(children: unknown): string {
-    if (typeof children === 'string') return children
-    if (Array.isArray(children)) {
-        return children.map((c) => (typeof c === 'string' ? c : '')).join('')
-    }
-    return ''
-}
-
 export default function App() {
-    const [text, setText] = useState('')
+    const [text, setText] = useState(loadContent)
     const [viewMode, setViewMode] = useState<ViewMode>('preview')
-    const [theme, setTheme] = useState<Theme>(getInitialTheme)
+    const [theme, setTheme] = useState<Theme>(loadTheme)
     const [toast, setToast] = useState<string | null>(null)
     const [isExportOpen, setIsExportOpen] = useState(false)
+    const [isExporting, setIsExporting] = useState(false)
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-    const [readerSettings, setReaderSettings] = useState<ReaderSettings>(getInitialReaderSettings)
+    const [readerSettings, setReaderSettings] = useState<ReaderSettings>(loadReaderSettings)
 
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     const previewContentRef = useRef<HTMLDivElement>(null)
     const exportMenuRef = useRef<HTMLDivElement>(null)
     const settingsPopoverRef = useRef<HTMLDivElement>(null)
     const activeScrollRef = useRef<'textarea' | 'preview' | null>(null)
+    const isProgrammaticScrollRef = useRef(false)
     const scrollTimeoutRef = useRef<number | null>(null)
     const toastTimeoutRef = useRef<number | null>(null)
 
@@ -149,6 +91,11 @@ export default function App() {
     const processedMarkdown = useMemo(() => preprocessMarkdown(deferredText), [deferredText])
     const isEmpty = !text.trim()
     const isPreviewStale = deferredText !== text
+
+    const textRef = useRef(text)
+    const deferredTextRef = useRef(deferredText)
+    textRef.current = text
+    deferredTextRef.current = deferredText
 
     const showToast = useCallback((message: string) => {
         setToast(message)
@@ -169,11 +116,7 @@ export default function App() {
 
     useEffect(() => {
         document.documentElement.setAttribute('data-theme', theme)
-        try {
-            localStorage.setItem(THEME_KEY, theme)
-        } catch {
-            // ignore quota / private mode
-        }
+        saveTheme(theme)
     }, [theme])
 
     useEffect(() => {
@@ -182,12 +125,14 @@ export default function App() {
         document.documentElement.style.setProperty('--preview-font-ar', getFontStackAr(readerSettings.fontFamilyAr))
         document.documentElement.style.setProperty('--preview-font-size', `${readerSettings.fontSize}px`)
         document.documentElement.style.setProperty('--preview-line-height', `${readerSettings.lineHeight}`)
-        try {
-            localStorage.setItem(READER_SETTINGS_KEY, JSON.stringify(readerSettings))
-        } catch {
-            // ignore
-        }
+        saveReaderSettings(readerSettings)
+        void loadFontsForSettings(readerSettings)
     }, [readerSettings])
+
+    useEffect(() => {
+        const id = window.setTimeout(() => saveContent(text), 500)
+        return () => window.clearTimeout(id)
+    }, [text])
 
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
@@ -206,6 +151,7 @@ export default function App() {
 
     const handleTextareaScroll = useCallback(() => {
         if (viewMode !== 'split' || !textareaRef.current || !previewContentRef.current) return
+        if (isProgrammaticScrollRef.current) return
         if (activeScrollRef.current && activeScrollRef.current !== 'textarea') return
 
         activeScrollRef.current = 'textarea'
@@ -216,18 +162,23 @@ export default function App() {
         const maxPreviewScroll = preview.scrollHeight - preview.clientHeight
 
         if (maxTextareaScroll > 0 && maxPreviewScroll > 0) {
+            isProgrammaticScrollRef.current = true
             const percentage = textarea.scrollTop / maxTextareaScroll
             preview.scrollTop = percentage * maxPreviewScroll
+            requestAnimationFrame(() => {
+                isProgrammaticScrollRef.current = false
+            })
         }
 
         if (scrollTimeoutRef.current) window.clearTimeout(scrollTimeoutRef.current)
         scrollTimeoutRef.current = window.setTimeout(() => {
             activeScrollRef.current = null
-        }, 100)
+        }, 150)
     }, [viewMode])
 
     const handlePreviewScroll = useCallback(() => {
         if (viewMode !== 'split' || !textareaRef.current || !previewContentRef.current) return
+        if (isProgrammaticScrollRef.current) return
         if (activeScrollRef.current && activeScrollRef.current !== 'preview') return
 
         activeScrollRef.current = 'preview'
@@ -238,29 +189,53 @@ export default function App() {
         const maxPreviewScroll = preview.scrollHeight - preview.clientHeight
 
         if (maxTextareaScroll > 0 && maxPreviewScroll > 0) {
+            isProgrammaticScrollRef.current = true
             const percentage = preview.scrollTop / maxPreviewScroll
             textarea.scrollTop = percentage * maxTextareaScroll
+            requestAnimationFrame(() => {
+                isProgrammaticScrollRef.current = false
+            })
         }
 
         if (scrollTimeoutRef.current) window.clearTimeout(scrollTimeoutRef.current)
         scrollTimeoutRef.current = window.setTimeout(() => {
             activeScrollRef.current = null
-        }, 100)
+        }, 150)
     }, [viewMode])
 
     const handlePaste = useCallback(async () => {
         try {
             if (!navigator.clipboard?.readText) throw new Error('No clipboard API')
             const clip = await navigator.clipboard.readText()
-            if (clip) {
+            if (!clip) return
+
+            const textarea = textareaRef.current
+            if (textarea) {
+                textarea.focus()
+                const start = textarea.selectionStart ?? 0
+                const end = textarea.selectionEnd ?? 0
+
+                if (text.length === 0) {
+                    setText(clip)
+                } else {
+                    const before = text.substring(0, start)
+                    const after = text.substring(end)
+                    setText(before + clip + after)
+                    requestAnimationFrame(() => {
+                        const newCursorPos = start + clip.length
+                        textarea.setSelectionRange(newCursorPos, newCursorPos)
+                    })
+                }
+                showToast('متن از کلیپ‌بورد جایگذاری شد')
+            } else {
                 setText(clip)
                 showToast('متن از کلیپ‌بورد جایگذاری شد')
             }
         } catch {
             textareaRef.current?.focus()
-            showToast('Ctrl+V را در کادر متن بزنید')
+            showToast('لطفاً Ctrl+V را در کادر متن بزنید')
         }
-    }, [showToast])
+    }, [text, showToast])
 
     const handleExport = useCallback(async (format: 'md' | 'html' | 'pdf' | 'png') => {
         setIsExportOpen(false)
@@ -269,9 +244,17 @@ export default function App() {
             return
         }
 
+        setIsExporting(true)
         try {
+            const {
+                exportAsHtml,
+                exportAsMarkdown,
+                exportAsPdf,
+                exportAsPng,
+            } = await import('./utils/exportUtils')
+
             if (format === 'md') {
-                exportAsMarkdown(text)
+                exportAsMarkdown(preprocessMarkdown(text))
                 showToast('فایل Markdown دانلود شد')
                 return
             }
@@ -279,23 +262,28 @@ export default function App() {
             // HTML/PDF/PNG need the rendered preview DOM
             if (viewMode === 'raw') {
                 setViewMode('preview')
-                showToast('برای خروجی تصویری، به پیش‌نمایش بروید و دوباره تلاش کنید')
-                return
+                await new Promise<void>((resolve) => {
+                    requestAnimationFrame(() => {
+                        setTimeout(resolve, 80)
+                    })
+                })
             }
 
-            // Wait a frame so preview paint is ready after mode switches
-            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+            await waitForPreviewSync(() => textRef.current === deferredTextRef.current)
 
             if (!previewContentRef.current) {
                 showToast('پیش‌نمایش آماده نیست؛ دوباره تلاش کنید')
                 return
             }
 
+            const mermaidCount = countMermaidBlocks(preprocessMarkdown(text))
+            await waitForMermaidReady(previewContentRef.current, mermaidCount)
+
             if (format === 'html') {
-                exportAsHtml(previewContentRef.current, theme)
+                await exportAsHtml(previewContentRef.current, theme)
                 showToast('فایل HTML دانلود شد')
             } else if (format === 'pdf') {
-                showToast('در حال ساخت PDF...')
+                showToast('در حال ساخت فایل PDF...')
                 await exportAsPdf(previewContentRef.current, theme)
                 showToast('فایل PDF دانلود شد')
             } else if (format === 'png') {
@@ -305,130 +293,32 @@ export default function App() {
             }
         } catch (err) {
             console.error(err)
-            showToast('خطا در دریافت خروجی')
+            if (format === 'pdf') {
+                showToast('ساخت PDF ناموفق بود')
+            } else {
+                showToast('خطا در دریافت خروجی')
+            }
+        } finally {
+            setIsExporting(false)
         }
     }, [text, theme, showToast, viewMode])
 
     useEffect(() => {
         function handleKeyDown(e: KeyboardEvent) {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                e.preventDefault()
-                setViewMode('preview')
-            }
-            if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'v' || e.key === 'V')) {
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'v') {
                 e.preventDefault()
                 void handlePaste()
+                return
+            }
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault()
+                setViewMode((prev) => (prev === 'preview' ? 'split' : 'preview'))
             }
         }
 
         window.addEventListener('keydown', handleKeyDown)
         return () => window.removeEventListener('keydown', handleKeyDown)
     }, [handlePaste])
-
-    const markdownComponents = useMemo(() => ({
-        // Avoid invalid <pre><div> nesting from custom code blocks
-        pre: ({children}: { children?: ReactNode }) => <>{children}</>,
-        table: ({children, ...props}: HTMLAttributes<HTMLTableElement> & { children?: ReactNode }) => (
-            <div className="table-responsive">
-                <table {...props}>{children}</table>
-            </div>
-        ),
-        p: ({children, className, ...props}: HTMLAttributes<HTMLParagraphElement> & { children?: ReactNode }) => {
-            const textStr = extractPlainText(children)
-            const isEng = isPureEnglish(textStr)
-            const isAr = isArabicText(textStr)
-            let cls = className || ''
-            if (isEng) cls += ' bidi-ltr is-english'
-            else if (isAr) cls += ' is-arabic'
-
-            return (
-                <p
-                    dir="auto"
-                    className={cls.trim() || undefined}
-                    style={
-                        isAr
-                            ? {fontFamily: 'var(--preview-font-ar)'}
-                            : isEng
-                                ? {fontFamily: 'var(--preview-font-en)'}
-                                : undefined
-                    }
-                    {...props}
-                >
-                    {children}
-                </p>
-            )
-        },
-        li: ({children, className, ...props}: HTMLAttributes<HTMLLIElement> & { children?: ReactNode }) => {
-            const textStr = extractPlainText(children)
-            const isEng = isPureEnglish(textStr)
-            const isAr = isArabicText(textStr)
-            let cls = className || ''
-            if (isEng) cls += ' bidi-ltr is-english'
-            else if (isAr) cls += ' is-arabic'
-
-            return (
-                <li
-                    dir="auto"
-                    className={cls.trim() || undefined}
-                    style={
-                        isAr
-                            ? {fontFamily: 'var(--preview-font-ar)'}
-                            : isEng
-                                ? {fontFamily: 'var(--preview-font-en)'}
-                                : undefined
-                    }
-                    {...props}
-                >
-                    {children}
-                </li>
-            )
-        },
-        h1: ({children, ...props}: HTMLAttributes<HTMLHeadingElement> & { children?: ReactNode }) => (
-            <h1 dir="auto" {...props}>{children}</h1>
-        ),
-        h2: ({children, ...props}: HTMLAttributes<HTMLHeadingElement> & { children?: ReactNode }) => (
-            <h2 dir="auto" {...props}>{children}</h2>
-        ),
-        h3: ({children, ...props}: HTMLAttributes<HTMLHeadingElement> & { children?: ReactNode }) => (
-            <h3 dir="auto" {...props}>{children}</h3>
-        ),
-        h4: ({children, ...props}: HTMLAttributes<HTMLHeadingElement> & { children?: ReactNode }) => (
-            <h4 dir="auto" {...props}>{children}</h4>
-        ),
-        blockquote: ({children, ...props}: HTMLAttributes<HTMLQuoteElement> & { children?: ReactNode }) => (
-            <blockquote dir="auto" {...props}>{children}</blockquote>
-        ),
-        code({children, className, ...rest}: HTMLAttributes<HTMLElement> & {
-            children?: ReactNode
-            className?: string
-            node?: unknown
-        }) {
-            const match = /(?:^|\s)language-([^\s]+)/.exec(className || '')
-            const language = match ? match[1] : ''
-            const content = String(children ?? '').replace(/\n$/, '')
-            const isMultiLine = content.includes('\n') || Boolean(match)
-
-            if (language === 'mermaid') {
-                return <MermaidBlock chart={content} theme={theme}/>
-            }
-
-            if (match || isMultiLine) {
-                return (
-                    <CodeBlock
-                        language={language || 'text'}
-                        value={content}
-                        theme={theme}
-                    />
-                )
-            }
-
-            return (
-                <code {...rest} className={className}>
-                    {children}
-                </code>
-            )
-        },
-    }), [theme])
 
     const renderInputPanel = (
         <section className="panel panel-input" aria-label="ورودی متن">
@@ -470,20 +360,29 @@ export default function App() {
                         <button
                             type="button"
                             className="btn btn-primary"
-                            onClick={() => setViewMode(viewMode === 'split' ? 'split' : 'raw')}
+                            onClick={() => {
+                                if (viewMode === 'split') {
+                                    textareaRef.current?.focus()
+                                } else {
+                                    setViewMode('raw')
+                                    setTimeout(() => textareaRef.current?.focus(), 50)
+                                }
+                            }}
                         >
                             رفتن به ویرایش
                         </button>
                     </div>
                 ) : (
                     <article className="markdown-body">
-                        <ReactMarkdown
-                            remarkPlugins={remarkPlugins}
-                            rehypePlugins={[rehypeRaw, [rehypeKatex, {strict: false, throwOnError: false}]]}
-                            components={markdownComponents}
+                        <Suspense
+                            fallback={
+                                <p className="preview-loading" aria-busy="true">
+                                    در حال آماده‌سازی پیش‌نمایش…
+                                </p>
+                            }
                         >
-                            {processedMarkdown}
-                        </ReactMarkdown>
+                            <MarkdownPreview markdown={processedMarkdown} theme={theme}/>
+                        </Suspense>
                     </article>
                 )}
             </div>
@@ -622,8 +521,14 @@ export default function App() {
                             type="button"
                             className="btn btn-ghost"
                             onClick={() => setIsExportOpen((prev) => !prev)}
-                            disabled={isEmpty}
-                            title="خروجی و دانلود"
+                            disabled={isEmpty || isExporting || isPreviewStale}
+                            title={
+                                isPreviewStale
+                                    ? 'پیش‌نمایش در حال به‌روزرسانی است'
+                                    : isExporting
+                                        ? 'در حال آماده‌سازی خروجی...'
+                                        : 'خروجی و دانلود'
+                            }
                         >
                             <DownloadIcon/>
                             خروجی

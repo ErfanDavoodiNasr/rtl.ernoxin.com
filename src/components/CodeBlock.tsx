@@ -1,6 +1,7 @@
-import {useCallback, useState} from 'react'
+import {useCallback, useEffect, useState} from 'react'
 import {PrismLight as SyntaxHighlighter} from 'react-syntax-highlighter'
 import {vs, vscDarkPlus} from 'react-syntax-highlighter/dist/esm/styles/prism'
+import {ensureMonoFont} from '../utils/fontLoader'
 
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
 import c from 'react-syntax-highlighter/dist/esm/languages/prism/c'
@@ -154,6 +155,10 @@ function normalizeLanguage(lang: string): string {
 export default function CodeBlock({language, value, theme}: CodeBlockProps) {
     const [copied, setCopied] = useState(false)
     const normalizedLang = normalizeLanguage(language)
+
+    useEffect(() => {
+        ensureMonoFont()
+    }, [])
 
     const handleCopy = useCallback(() => {
         const copy = async () => {

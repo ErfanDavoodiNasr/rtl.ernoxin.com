@@ -1,6 +1,6 @@
 /**
- * Markdown preprocessing for AI chat output compatibility
- * (ChatGPT / Claude / DeepSeek / Cursor).
+ * Markdown preprocessing for AI chat output
+ * (ChatGPT / Claude / DeepSeek / Cursor / Gemini).
  */
 
 function preprocessAsciiTables(text: string): string {
@@ -10,7 +10,7 @@ function preprocessAsciiTables(text: string): string {
     let inCodeBlock = false
     let tableLines: string[] = []
 
-    const isBorder = (line: string) => /(?=.*[-_])^[+\-_|\s=]+$/.test(line.trim())
+    const isBorder = (line: string) => /(?=.*[-_])^[+\-_|\s=:]+$/.test(line.trim())
     const isData = (line: string) => {
         const trimmed = line.trim()
         if (!trimmed.includes('|')) return false
@@ -23,15 +23,25 @@ function preprocessAsciiTables(text: string): string {
         const dataLines = block.filter((line) => !isBorder(line))
         if (dataLines.length === 0) return block
 
+        const borderLines = block.filter((line) => isBorder(line))
+        const alignmentRow = borderLines.find((line) => line.includes(':'))
+
         const res: string[] = []
         let header = dataLines[0].trim()
         if (!header.startsWith('|')) header = '| ' + header
         if (!header.endsWith('|')) header = header + ' |'
         res.push(header)
 
-        const colCount = (header.match(/\|/g) || []).length - 1
-        const separator = '|' + Array(Math.max(1, colCount)).fill('---').join('|') + '|'
-        res.push(separator)
+        if (alignmentRow) {
+            let sep = alignmentRow.trim().replace(/^\+/, '|').replace(/\+$/, '|').replace(/\+/g, '|')
+            if (!sep.startsWith('|')) sep = '| ' + sep
+            if (!sep.endsWith('|')) sep = sep + ' |'
+            res.push(sep)
+        } else {
+            const colCount = (header.match(/\|/g) || []).length - 1
+            const separator = '|' + Array(Math.max(1, colCount)).fill('---').join('|') + '|'
+            res.push(separator)
+        }
 
         for (let i = 1; i < dataLines.length; i++) {
             let row = dataLines[i].trim()
@@ -101,6 +111,14 @@ function restoreCodeBlocks(text: string, blocks: string[]): string {
     return text.replace(/\0CODE_BLOCK_(\d+)\0/g, (_, index) => blocks[Number(index)] || '')
 }
 
+/** ```math / ```latex / ```tex → $$...$$ so KaTeX can render them. */
+function preprocessMathFences(text: string): string {
+    return text.replace(/```(?:math|latex|tex)\s*\n([\s\S]*?)```/gi, (_, body: string) => {
+        const trimmed = body.replace(/^\n+|\n+$/g, '')
+        return `\n$$\n${trimmed}\n$$\n`
+    })
+}
+
 function preprocessMathDelimiters(text: string): string {
     let out = text
 
@@ -109,6 +127,9 @@ function preprocessMathDelimiters(text: string): string {
 
     // \(...\) → $...$  (inline)
     out = out.replace(/\\\(([\s\S]*?)\\\)/g, (_, math: string) => `$${math}$`)
+
+    // Bare chemistry macros not already inside $...$
+    out = out.replace(/(?<!\$)\\ce\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}(?!\$)/g, (_m, body: string) => `$\\ce{${body}}$`)
 
     // Bare LaTeX environments not already wrapped in $$
     const envNames = [
@@ -127,6 +148,7 @@ function preprocessMathDelimiters(text: string): string {
         'Vmatrix',
         'cases',
         'array',
+        'chemical',
     ]
     const envRegex = new RegExp(
         `(?<!\\$)\\\\begin\\{(${envNames.join('|')})\\}[\\s\\S]*?\\\\end\\{\\1\\}(?!\\$)`,
@@ -137,11 +159,40 @@ function preprocessMathDelimiters(text: string): string {
     return out
 }
 
+/**
+ * ChatGPT sometimes pastes GFM tables without a blank line before them,
+ * which some parsers mishandle. Ensure a blank line before table headers.
+ */
+function ensureBlankLineBeforeTables(text: string): string {
+    const lines = text.split('\n')
+    const out: string[] = []
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
+        const next = lines[i + 1]
+        const looksLikeHeader = /^\|.+\|/.test(line.trim())
+        const looksLikeSep = next !== undefined && /^\|?\s*:?-{3,}/.test(next.trim())
+        if (
+            looksLikeHeader &&
+            looksLikeSep &&
+            out.length > 0 &&
+            out[out.length - 1].trim() !== '' &&
+            !out[out.length - 1].trim().startsWith('|')
+        ) {
+            out.push('')
+        }
+        out.push(line)
+    }
+    return out.join('\n')
+}
+
 export function preprocessMarkdown(text: string): string {
     if (!text) return ''
 
-    const {text: withoutCode, blocks} = protectCodeBlocks(text)
+    // Convert math/latex fences before protecting remaining code blocks
+    const prepared = preprocessMathFences(text)
+    const {text: withoutCode, blocks} = protectCodeBlocks(prepared)
     let processed = preprocessMathDelimiters(withoutCode)
     processed = preprocessAsciiTables(processed)
+    processed = ensureBlankLineBeforeTables(processed)
     return restoreCodeBlocks(processed, blocks)
 }
