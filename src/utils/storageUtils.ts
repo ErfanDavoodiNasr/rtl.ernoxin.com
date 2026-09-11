@@ -1,6 +1,30 @@
 export const THEME_KEY = 'arnooxine-theme'
 export const READER_SETTINGS_KEY = 'arnooxine-reader-settings'
 export const CONTENT_KEY = 'arnooxine-content'
+/** Legacy localStorage key; migrated into IndexedDB by historyStore. */
+export const HISTORY_KEY = 'arnooxine-history'
+export const HISTORY_LIMIT_KEY = 'arnooxine-history-limit'
+
+/** About 1.5MB of UTF-8. Leaves headroom under typical localStorage quotas. */
+export const MAX_CONTENT_BYTES = 1_500_000
+export const DEFAULT_HISTORY_LIMIT = 10
+/**
+ * Soft ceiling so a typo like 1e15 cannot explode storage.
+ * Not a product max — users may choose 10…1000+.
+ */
+export const MAX_HISTORY_LIMIT = 10_000
+
+export interface HistoryEntry {
+    id: string
+    text: string
+    savedAt: number
+}
+
+export type SaveFailureReason = 'too-large' | 'quota' | 'unavailable'
+
+export type SaveContentResult =
+    | { ok: true }
+    | { ok: false; reason: SaveFailureReason }
 
 export type Theme = 'dark' | 'light'
 
@@ -72,13 +96,25 @@ export function loadReaderSettings(): ReaderSettings {
     }
 }
 
-export function loadContent(): string {
+export function loadContentDetailed(): { text: string; truncated: boolean } {
     try {
         const saved = localStorage.getItem(CONTENT_KEY)
-        return typeof saved === 'string' ? saved : ''
+        if (typeof saved !== 'string') return {text: '', truncated: false}
+        if (contentByteSize(saved) <= MAX_CONTENT_BYTES) return {text: saved, truncated: false}
+        const clipped = truncateToByteLimit(saved, MAX_CONTENT_BYTES)
+        try {
+            localStorage.setItem(CONTENT_KEY, clipped)
+        } catch {
+            // ignore rewrite failures; still return a bounded string for the editor
+        }
+        return {text: clipped, truncated: true}
     } catch {
-        return ''
+        return {text: '', truncated: false}
     }
+}
+
+export function loadContent(): string {
+    return loadContentDetailed().text
 }
 
 export function saveTheme(theme: Theme): void {
@@ -97,10 +133,83 @@ export function saveReaderSettings(settings: ReaderSettings): void {
     }
 }
 
-export function saveContent(text: string): void {
+export function contentByteSize(text: string): number {
+    return new Blob([text]).size
+}
+
+/** UTF-8-safe truncate used when persisted content exceeds the cap. */
+export function truncateToByteLimit(text: string, maxBytes: number): string {
+    if (contentByteSize(text) <= maxBytes) return text
+    const bytes = new TextEncoder().encode(text)
+    let end = Math.min(maxBytes, bytes.length)
+    while (end > 0 && (bytes[end] & 0xc0) === 0x80) end -= 1
+    return new TextDecoder().decode(bytes.slice(0, end))
+}
+
+export function isQuotaExceededError(err: unknown): boolean {
+    if (!err || typeof err !== 'object') return false
+    const error = err as { name?: string; code?: number }
+    return (
+        error.name === 'QuotaExceededError' ||
+        error.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+        error.code === 22 ||
+        error.code === 1014
+    )
+}
+
+export function saveContent(text: string): SaveContentResult {
+    if (contentByteSize(text) > MAX_CONTENT_BYTES) {
+        return {ok: false, reason: 'too-large'}
+    }
     try {
         localStorage.setItem(CONTENT_KEY, text)
+        return {ok: true}
+    } catch (err) {
+        if (isQuotaExceededError(err)) return {ok: false, reason: 'quota'}
+        return {ok: false, reason: 'unavailable'}
+    }
+}
+
+export function clearContent(): SaveContentResult {
+    try {
+        localStorage.removeItem(CONTENT_KEY)
+        return {ok: true}
+    } catch {
+        return {ok: false, reason: 'unavailable'}
+    }
+}
+
+export function saveFailureMessage(reason: SaveFailureReason): string {
+    switch (reason) {
+        case 'too-large':
+            return 'حجم سند از سقف ۱٫۵ مگابایت بیشتر است و ذخیره نشد'
+        case 'quota':
+            return 'حافظهٔ مرورگر پر است؛ سند ذخیره نشد. خروجی بگیرید'
+        case 'unavailable':
+            return 'ذخیره در این مرورگر ممکن نیست؛ خروجی بگیرید'
+    }
+}
+
+export function normalizeHistoryLimit(value: unknown): number {
+    const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
+    if (!Number.isFinite(n)) return DEFAULT_HISTORY_LIMIT
+    return Math.min(MAX_HISTORY_LIMIT, Math.max(1, Math.floor(n)))
+}
+
+export function loadHistoryLimit(): number {
+    try {
+        return normalizeHistoryLimit(localStorage.getItem(HISTORY_LIMIT_KEY))
+    } catch {
+        return DEFAULT_HISTORY_LIMIT
+    }
+}
+
+export function saveHistoryLimit(limit: number): number {
+    const next = normalizeHistoryLimit(limit)
+    try {
+        localStorage.setItem(HISTORY_LIMIT_KEY, String(next))
     } catch {
         // ignore
     }
+    return next
 }

@@ -2,7 +2,9 @@
 <html dir="rtl" lang="fa">
 <head>
     <meta charset="UTF-8"/>
-    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <meta content="width=device-width, initial-scale=1.0, viewport-fit=cover" name="viewport"/>
+    <meta content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' ws: wss:; worker-src 'self' blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'"
+          http-equiv="Content-Security-Policy"/>
     <link href="/favicon.svg" rel="icon" type="image/svg+xml"/>
 
     <!-- Primary Meta Tags -->
@@ -34,34 +36,10 @@
           property="twitter:description"/>
     <meta content="https://rtl.ernoxin.com/og-image.png" property="twitter:image"/>
 
-    <!-- Structured Data (Schema.org) -->
-    <script type="application/ld+json">
-        {
-            "@context": "https://schema.org",
-            "@type": "WebApplication",
-            "name": "نمایشگر فارسی ارنوکسین",
-            "alternateName": "Ernoxin RTL Viewer",
-            "url": "https://rtl.ernoxin.com/",
-            "description": "ابزار وب جهت راست‌چین‌سازی، رندر فرمول‌های ریاضی، نمودارهای Mermaid و اصلاح خروجی‌های هوش مصنوعی.",
-            "applicationCategory": "DeveloperApplication",
-            "operatingSystem": "All",
-            "offers": {
-                "@type": "Offer",
-                "price": "0",
-                "priceCurrency": "USD"
-            }
-        }
-    </script>
+    <!-- Structured Data (Schema.org) — external so CSP script-src 'self' allows it -->
+    <script src="/schema.json" type="application/ld+json"></script>
 
-    <script>
-        (function () {
-            var t = localStorage.getItem('arnooxine-theme');
-            if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
-            else if (window.matchMedia('(prefers-color-scheme: light)').matches)
-                document.documentElement.setAttribute('data-theme', 'light');
-            else document.documentElement.setAttribute('data-theme', 'dark');
-        })();
-    </script>
+    <script src="/theme-init.js"></script>
 </head>
 <body>
 <div id="root"></div>

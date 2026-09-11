@@ -1,0 +1,15 @@
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "نمایشگر فارسی ارنوکسین",
+  "alternateName": "Ernoxin RTL Viewer",
+  "url": "https://rtl.ernoxin.com/",
+  "description": "ابزار وب جهت راست‌چین‌سازی، رندر فرمول‌های ریاضی، نمودارهای Mermaid و اصلاح خروجی‌های هوش مصنوعی.",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "All",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  }
+}

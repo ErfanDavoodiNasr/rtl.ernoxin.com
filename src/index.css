@@ -63,7 +63,47 @@
     --radius-xl: 20px;
 
     --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* Layout tokens — fluid shell across 320px → 4K+ */
+    --app-max-width: 1240px;
+    --app-pad-inline: clamp(0.75rem, 2.2vw, 2.5rem);
+    --app-pad-block: clamp(0.75rem, 1.8vw, 1.75rem);
+    --app-gap: clamp(0.75rem, 1.6vw, 1.25rem);
+    --panel-pad-inline: clamp(1rem, 2.5vw, 2rem);
+    --panel-pad-block: clamp(1rem, 2vw, 1.75rem);
+    --touch-min: 44px;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --chrome-offset: clamp(9.5rem, 22vh, 12.5rem);
+
     color-scheme: dark;
+}
+
+@media (min-width: 1600px) {
+    :root,
+    [data-theme='dark'],
+    [data-theme='light'] {
+        --app-max-width: 1480px;
+    }
+}
+
+@media (min-width: 2200px) {
+    :root,
+    [data-theme='dark'],
+    [data-theme='light'] {
+        --app-max-width: 1680px;
+        --app-pad-inline: clamp(2rem, 4vw, 4rem);
+    }
+}
+
+@media (min-width: 3000px) {
+    :root,
+    [data-theme='dark'],
+    [data-theme='light'] {
+        --app-max-width: 1920px;
+    }
 }
 
 [data-theme='light'] {
@@ -107,10 +147,12 @@
 }
 
 html {
-    font-size: 16px;
+    font-size: 100%;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     scroll-behavior: smooth;
+    min-height: 100vh;
+    min-height: 100dvh;
 }
 
 body {
@@ -118,14 +160,32 @@ body {
     background: var(--bg-base);
     color: var(--text-primary);
     direction: rtl;
+    min-height: 100vh;
     min-height: 100dvh;
     line-height: 1.8;
-    overflow-x: hidden;
     transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 #root {
+    min-height: 100vh;
     min-height: 100dvh;
+    width: 100%;
+    max-width: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    html {
+        scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
 }
 
 ::selection {

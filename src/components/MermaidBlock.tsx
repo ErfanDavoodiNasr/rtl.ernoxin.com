@@ -1,28 +1,55 @@
 import {useEffect, useId, useState} from 'react'
+import {sanitizeSvg} from '../utils/svgSanitize'
 
 interface MermaidBlockProps {
     chart: string
     theme: 'dark' | 'light'
 }
 
-let mermaidReady: Promise<typeof import('mermaid').default> | null = null
+type MermaidApi = typeof import('mermaid').default
+
+let mermaidModule: Promise<MermaidApi> | null = null
+let initChain: Promise<void> = Promise.resolve()
 let lastTheme: 'dark' | 'light' | null = null
 
-async function getMermaid(theme: 'dark' | 'light') {
-    if (!mermaidReady) {
-        mermaidReady = import('mermaid').then((mod) => mod.default)
+function loadMermaid(): Promise<MermaidApi> {
+    if (!mermaidModule) {
+        mermaidModule = import('mermaid').then((mod) => mod.default)
     }
-    const mermaid = await mermaidReady
-    if (lastTheme !== theme) {
+    return mermaidModule
+}
+
+async function getMermaid(theme: 'dark' | 'light'): Promise<MermaidApi> {
+    const mermaid = await loadMermaid()
+    const run = initChain.then(async () => {
+        if (lastTheme === theme) return
         mermaid.initialize({
             startOnLoad: false,
             theme: theme === 'dark' ? 'dark' : 'default',
             fontFamily: 'Vazirmatn, sans-serif',
             securityLevel: 'strict',
+            htmlLabels: false,
+            maxTextSize: 50_000,
+            maxEdges: 500,
         })
         lastTheme = theme
-    }
+    })
+    // Keep the chain alive after a failed initialize so later renders can retry.
+    initChain = run.catch(() => {
+        lastTheme = null
+    })
+    await run
     return mermaid
+}
+
+function makeRenderId(reactId: string): string {
+    const random = Math.random().toString(36).slice(2, 10)
+    return `mermaid-${reactId}-${Date.now().toString(36)}-${random}`
+}
+
+function cleanupMermaidDom(uniqueId: string) {
+    document.getElementById(uniqueId)?.remove()
+    document.getElementById(`d${uniqueId}`)?.remove()
 }
 
 export default function MermaidBlock({chart, theme}: MermaidBlockProps) {
@@ -32,7 +59,7 @@ export default function MermaidBlock({chart, theme}: MermaidBlockProps) {
 
     useEffect(() => {
         let cancelled = false
-        const uniqueId = `mermaid-${reactId}-${Date.now()}`
+        const uniqueId = makeRenderId(reactId)
 
         const renderChart = async () => {
             try {
@@ -46,19 +73,17 @@ export default function MermaidBlock({chart, theme}: MermaidBlockProps) {
 
                 const mermaid = await getMermaid(theme)
                 const {svg} = await mermaid.render(uniqueId, chart)
-                if (!cancelled) {
-                    setSvgContent(svg)
-                    setError(null)
-                }
+                if (cancelled) return
+                setSvgContent(sanitizeSvg(svg))
+                setError(null)
             } catch (err: unknown) {
                 if (!cancelled) {
                     const message = err instanceof Error ? err.message : 'خطا در رندر نمودار Mermaid'
                     setError(message)
                     setSvgContent('')
                 }
-                // Mermaid may leave temporary error DOM nodes
-                document.getElementById(uniqueId)?.remove()
-                document.getElementById(`d${uniqueId}`)?.remove()
+            } finally {
+                cleanupMermaidDom(uniqueId)
             }
         }
 
@@ -66,8 +91,7 @@ export default function MermaidBlock({chart, theme}: MermaidBlockProps) {
 
         return () => {
             cancelled = true
-            document.getElementById(uniqueId)?.remove()
-            document.getElementById(`d${uniqueId}`)?.remove()
+            cleanupMermaidDom(uniqueId)
         }
     }, [chart, theme, reactId])
 
@@ -84,7 +108,12 @@ export default function MermaidBlock({chart, theme}: MermaidBlockProps) {
 
     if (!svgContent) {
         return (
-            <div className="mermaid-block-wrapper mermaid-loading" dir="ltr" aria-busy="true">
+            <div
+                className="mermaid-block-wrapper mermaid-loading"
+                dir="ltr"
+                aria-busy="true"
+                data-preview-pending="true"
+            >
                 <span className="mermaid-loading-text">در حال رسم نمودار…</span>
             </div>
         )

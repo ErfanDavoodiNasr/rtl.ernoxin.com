@@ -8,11 +8,22 @@ import remarkMath from 'remark-math'
 import {getBidiTextProps} from '../utils/bidiUtils'
 import {loadKatexPlugin} from '../utils/katexLoader'
 import {markdownNeedsKatex} from '../utils/previewReady'
+import {isExternalHttpUrl, safeMarkdownUrl} from '../utils/urlSafety'
 
 const MermaidBlock = lazy(() => import('./MermaidBlock'))
 const CodeBlock = lazy(() => import('./CodeBlock'))
 
 const remarkPlugins = [remarkGfm, remarkBreaks, remarkMath]
+
+type AttrItem = string | [string, ...Array<string | number | boolean | RegExp | null | undefined>]
+type AttrList = AttrItem[]
+
+function withoutStyle(list: AttrList | undefined): AttrList {
+    return (list || []).filter((item: AttrItem) => {
+        const name = typeof item === 'string' ? item : item[0]
+        return name !== 'style'
+    })
+}
 
 const sanitizeSchema = {
     ...defaultSchema,
@@ -33,6 +44,10 @@ const sanitizeSchema = {
         'mtable',
         'mtr',
         'mtd',
+        'mspace',
+        'mstyle',
+        'mtext',
+        'menclose',
         'annotation',
         'span',
         'div',
@@ -52,34 +67,47 @@ const sanitizeSchema = {
     attributes: {
         ...defaultSchema.attributes,
         '*': [
-            ...(defaultSchema.attributes?.['*'] || []),
-            'className',
-            'class',
+            ...withoutStyle(defaultSchema.attributes?.['*'] as AttrList | undefined).filter((item: AttrItem) => {
+                const name = typeof item === 'string' ? item : item[0]
+                return name !== 'className' && name !== 'class'
+            }),
             'dir',
             'ariaHidden',
             'aria-hidden',
             'title',
             'role',
         ],
-        code: [...(defaultSchema.attributes?.code || []), 'className', 'class', 'language*'],
-        span: [...(defaultSchema.attributes?.span || []), 'className', 'class', 'style'],
-        div: [...(defaultSchema.attributes?.div || []), 'className', 'class'],
-        table: [...(defaultSchema.attributes?.table || []), 'className', 'class', 'align'],
-        th: [...(defaultSchema.attributes?.th || []), 'align'],
-        td: [...(defaultSchema.attributes?.td || []), 'align'],
-        svg: ['viewBox', 'width', 'height', 'xmlns', 'className', 'class', 'fill', 'stroke', 'role'],
-        path: ['d', 'fill', 'stroke', 'className', 'class'],
-        rect: ['x', 'y', 'width', 'height', 'fill', 'stroke', 'className', 'class'],
-        circle: ['cx', 'cy', 'r', 'fill', 'stroke', 'className', 'class'],
-        polyline: ['points', 'fill', 'stroke', 'className', 'class'],
-        line: ['x1', 'y1', 'x2', 'y2', 'stroke', 'className', 'class'],
-        a: [...(defaultSchema.attributes?.a || []), 'href', 'title', 'rel'],
-        img: [...(defaultSchema.attributes?.img || []), 'src', 'alt', 'title', 'width', 'height'],
+        code: [...withoutStyle(defaultSchema.attributes?.code as AttrList | undefined), 'className', 'class', ['className', /^language-/] as AttrItem],
+        span: [...withoutStyle(defaultSchema.attributes?.span as AttrList | undefined), 'className', 'class', 'style'],
+        div: [...withoutStyle(defaultSchema.attributes?.div as AttrList | undefined), 'className', 'class', 'style'],
+        math: ['xmlns', 'display'],
+        annotation: ['encoding'],
+        mi: ['mathvariant'],
+        mo: ['stretchy', 'fence', 'separator', 'lspace', 'rspace'],
+        mspace: ['width', 'height', 'depth'],
+        mstyle: ['mathcolor', 'mathbackground', 'displaystyle', 'scriptlevel'],
+        mtable: ['align', 'columnalign', 'rowalign', 'columnspacing', 'rowspacing'],
+        mtd: ['columnalign', 'rowalign'],
+        semantics: [],
+        table: [...withoutStyle(defaultSchema.attributes?.table as AttrList | undefined), 'className', 'class', 'align'],
+        th: [...withoutStyle(defaultSchema.attributes?.th as AttrList | undefined), 'align'],
+        td: [...withoutStyle(defaultSchema.attributes?.td as AttrList | undefined), 'align'],
+        svg: ['viewBox', 'width', 'height', 'xmlns', 'fill', 'stroke', 'role', 'aria-hidden', 'focusable'],
+        path: ['d', 'fill', 'stroke'],
+        rect: ['x', 'y', 'width', 'height', 'fill', 'stroke'],
+        circle: ['cx', 'cy', 'r', 'fill', 'stroke'],
+        polyline: ['points', 'fill', 'stroke'],
+        line: ['x1', 'y1', 'x2', 'y2', 'stroke'],
+        a: [...withoutStyle(defaultSchema.attributes?.a as AttrList | undefined).filter((item: AttrItem) => {
+            const name = typeof item === 'string' ? item : item[0]
+            return name !== 'target' && name !== 'className' && name !== 'class'
+        }), 'href', 'title', 'rel'],
+        img: [...withoutStyle(defaultSchema.attributes?.img as AttrList | undefined), 'src', 'alt', 'title', 'width', 'height'],
     },
     protocols: {
         ...(defaultSchema.protocols || {}),
         href: ['http', 'https', 'mailto'],
-        src: ['http', 'https'],
+        src: ['https'],
         cite: ['http', 'https'],
     },
 }
@@ -152,25 +180,46 @@ export default function MarkdownPreview({markdown, theme}: MarkdownPreviewProps)
     const [rehypeKatexPlugin, setRehypeKatexPlugin] = useState<((...args: unknown[]) => unknown) | null>(
         null,
     )
+    const [katexStatus, setKatexStatus] = useState<'pending' | 'ready' | 'error'>(
+        needsKatex ? 'pending' : 'ready',
+    )
 
     useEffect(() => {
-        if (!needsKatex || rehypeKatexPlugin) return
+        if (!needsKatex) {
+            setKatexStatus('ready')
+            return
+        }
+        if (rehypeKatexPlugin) {
+            const frame = requestAnimationFrame(() => setKatexStatus('ready'))
+            return () => cancelAnimationFrame(frame)
+        }
+
         let cancelled = false
-        void loadKatexPlugin().then((plugin) => {
-            if (!cancelled) {
-                setRehypeKatexPlugin(() => plugin as (...args: unknown[]) => unknown)
-            }
-        })
+        setKatexStatus('pending')
+        void loadKatexPlugin()
+            .then((plugin) => {
+                if (!cancelled) {
+                    setRehypeKatexPlugin(() => plugin as (...args: unknown[]) => unknown)
+                }
+            })
+            .catch(() => {
+                if (!cancelled) setKatexStatus('error')
+            })
         return () => {
             cancelled = true
         }
     }, [needsKatex, rehypeKatexPlugin])
 
     const rehypePlugins = useMemo(() => {
-        const plugins: unknown[] = [rehypeRaw, [rehypeSanitize, sanitizeSchema]]
+        // Sanitize must run after KaTeX so generated MathML/HTML cannot bypass the allow-list.
+        const plugins: unknown[] = [rehypeRaw]
         if (rehypeKatexPlugin) {
-            plugins.push([rehypeKatexPlugin, {strict: false, throwOnError: false}])
+            plugins.push([
+                rehypeKatexPlugin,
+                {strict: 'ignore', throwOnError: false, trust: false},
+            ])
         }
+        plugins.push([rehypeSanitize, sanitizeSchema])
         return plugins
     }, [rehypeKatexPlugin])
 
@@ -185,6 +234,32 @@ export default function MarkdownPreview({markdown, theme}: MarkdownPreviewProps)
                     <table {...props}>{children}</table>
                 </div>
             ),
+            a: ({
+                    children,
+                    href,
+                    ...props
+                }: HTMLAttributes<HTMLAnchorElement> & { children?: ReactNode; href?: string }) => {
+                const safeHref = href && href.length > 0 ? href : undefined
+                const external = isExternalHttpUrl(safeHref)
+                return (
+                    <a
+                        {...props}
+                        href={safeHref}
+                        target={external ? '_blank' : undefined}
+                        rel={external ? 'noopener noreferrer' : undefined}
+                    >
+                        {children}
+                    </a>
+                )
+            },
+            img: ({
+                      src,
+                      alt,
+                      ...props
+                  }: HTMLAttributes<HTMLImageElement> & { src?: string; alt?: string }) => {
+                if (!src) return null
+                return <img {...props} src={src} alt={alt ?? ''}/>
+            },
             p: createBidiBlockComponent('p'),
             li: BidiListItem,
             h1: createBidiBlockComponent('h1'),
@@ -203,6 +278,15 @@ export default function MarkdownPreview({markdown, theme}: MarkdownPreviewProps)
                 const language = match ? match[1] : ''
                 const content = String(children ?? '').replace(/\n$/, '')
 
+                // Math nodes can appear as language-math before/without KaTeX; never treat as code.
+                if (language === 'math' || language === 'latex' || language === 'katex') {
+                    return (
+                        <code {...rest} className={className}>
+                            {children}
+                        </code>
+                    )
+                }
+
                 if (language === 'mermaid') {
                     return (
                         <Suspense
@@ -211,6 +295,7 @@ export default function MarkdownPreview({markdown, theme}: MarkdownPreviewProps)
                                     className="mermaid-block-wrapper mermaid-loading"
                                     dir="ltr"
                                     aria-busy="true"
+                                    data-preview-pending="true"
                                 >
                                     <span className="mermaid-loading-text">در حال رسم نمودار…</span>
                                 </div>
@@ -225,7 +310,8 @@ export default function MarkdownPreview({markdown, theme}: MarkdownPreviewProps)
                     return (
                         <Suspense
                             fallback={
-                                <pre className="code-block-fallback" dir="ltr">
+                                <pre className="code-block-fallback" dir="ltr" data-preview-pending="true"
+                                     aria-busy="true">
                                     <code>{content}</code>
                                 </pre>
                             }
@@ -246,12 +332,15 @@ export default function MarkdownPreview({markdown, theme}: MarkdownPreviewProps)
     )
 
     return (
-        <ReactMarkdown
-            remarkPlugins={remarkPlugins}
-            rehypePlugins={rehypePlugins as never}
-            components={components}
-        >
-            {markdown}
-        </ReactMarkdown>
+        <div data-katex-status={katexStatus}>
+            <ReactMarkdown
+                remarkPlugins={remarkPlugins}
+                rehypePlugins={rehypePlugins as never}
+                urlTransform={safeMarkdownUrl}
+                components={components}
+            >
+                {markdown}
+            </ReactMarkdown>
+        </div>
     )
 }

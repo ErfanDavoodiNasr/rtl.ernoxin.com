@@ -160,6 +160,12 @@ export default function CodeBlock({language, value, theme}: CodeBlockProps) {
         ensureMonoFont()
     }, [])
 
+    useEffect(() => {
+        if (!copied) return
+        const id = window.setTimeout(() => setCopied(false), 2000)
+        return () => window.clearTimeout(id)
+    }, [copied])
+
     const handleCopy = useCallback(() => {
         const copy = async () => {
             try {
@@ -177,7 +183,6 @@ export default function CodeBlock({language, value, theme}: CodeBlockProps) {
                     document.body.removeChild(ta)
                 }
                 setCopied(true)
-                window.setTimeout(() => setCopied(false), 2000)
             } catch {
                 // ignore clipboard failures
             }

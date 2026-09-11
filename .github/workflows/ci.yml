@@ -26,14 +26,34 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Test
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit / integration tests
         run: npm run test
+
+      - name: Coverage (critical modules)
+        run: npm run test:coverage
 
       - name: Build
         run: npm run build
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E (Chromium)
+        run: npx playwright test --project=chromium
 
       - name: Generate og-image
         run: npm run og-image
 
       - name: Verify og-image exists
         run: test -f public/og-image.png
+
+      - name: Verify production bundle is self-hosted
+        run: |
+          # Static scan of first-party assets (vendor chunks may embed inert doc URLs).
+          if grep -R -E "cdn\.jsdelivr|unpkg\.com|cdnjs\.cloudflare|fonts\.googleapis|fonts\.gstatic" dist --include='*.html' --include='index-*.js' --include='react-*.js' --include='*.css'; then
+            echo "CDN reference found in first-party dist assets"
+            exit 1
+          fi

@@ -1,11 +1,19 @@
 /** Lazy-load font CSS only when the user selects a non-default family. */
 
-const loaded = new Set<string>()
+const inflight = new Map<string, Promise<void>>()
 
 async function loadOnce(key: string, loader: () => Promise<unknown>): Promise<void> {
-    if (loaded.has(key)) return
-    loaded.add(key)
-    await loader()
+    const existing = inflight.get(key)
+    if (existing) return existing
+
+    const promise = loader()
+        .then(() => undefined)
+        .catch((err: unknown) => {
+            inflight.delete(key)
+            throw err
+        })
+    inflight.set(key, promise)
+    return promise
 }
 
 export async function loadFontFamily(name: string): Promise<void> {
@@ -15,7 +23,7 @@ export async function loadFontFamily(name: string): Promise<void> {
             return
         case 'Vazirmatn':
             // Already in the critical CSS bundle
-            loaded.add('Vazirmatn')
+            inflight.set('Vazirmatn', Promise.resolve())
             return
         case 'Shabnam':
             await loadOnce('Shabnam', () => import('../assets/fonts/shabnam.css'))
@@ -106,7 +114,17 @@ export async function loadFontsForSettings(settings: FontSettings): Promise<void
     }
 }
 
-/** Call when a fenced code block is shown. */
+export async function ensureFontsReady(settings: FontSettings): Promise<void> {
+    await Promise.all([
+        loadFontFamily(settings.fontFamily),
+        loadFontFamily(settings.fontFamilyEn),
+        loadFontFamily(settings.fontFamilyAr),
+    ])
+    if (typeof document !== 'undefined' && document.fonts?.ready) {
+        await document.fonts.ready
+    }
+}
+
 export function ensureMonoFont(): void {
     void loadFontFamily('JetBrains Mono')
 }

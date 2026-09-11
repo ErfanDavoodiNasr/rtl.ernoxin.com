@@ -1,24 +1,40 @@
 import {lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState,} from 'react'
 import Logo from './components/Logo'
-import {loadFontsForSettings} from './utils/fontLoader'
-import {countMermaidBlocks, waitForMermaidReady, waitForPreviewSync,} from './utils/previewReady'
+import PreviewErrorBoundary from './components/PreviewErrorBoundary'
+import {ensureFontsReady, loadFontsForSettings} from './utils/fontLoader'
+import {waitForExportPreview, waitForPreviewSync,} from './utils/previewReady'
 import {preprocessMarkdown} from './utils/markdownUtils'
 import {
-    loadContent,
+    clearContent,
+    contentByteSize,
+    type HistoryEntry,
+    loadContentDetailed,
+    loadHistoryLimit,
     loadReaderSettings,
     loadTheme,
+    MAX_CONTENT_BYTES,
+    MAX_HISTORY_LIMIT,
     type ReaderSettings,
     saveContent,
+    saveFailureMessage,
+    type SaveFailureReason,
     saveReaderSettings,
     saveTheme,
     type Theme,
 } from './utils/storageUtils'
+import {clearHistory, loadHistory, pushHistory, setHistoryLimitAndTrim,} from './utils/historyStore'
+import {insertClipboardText} from './utils/clipboardInsert'
 import './App.css'
 
 const MarkdownPreview = lazy(() => import('./components/MarkdownPreview'))
 
 
 type ViewMode = 'preview' | 'raw' | 'split'
+
+function historySnippet(text: string): string {
+    const oneLine = text.replace(/\s+/g, ' ').trim()
+    return oneLine.length > 48 ? `${oneLine.slice(0, 48)}…` : oneLine
+}
 
 function getFontStack(font: string): string {
     switch (font) {
@@ -69,23 +85,37 @@ function getFontStackAr(font: string): string {
 }
 
 export default function App() {
-    const [text, setText] = useState(loadContent)
+    const initialContent = useMemo(() => loadContentDetailed(), [])
+    const [text, setText] = useState(initialContent.text)
     const [viewMode, setViewMode] = useState<ViewMode>('preview')
     const [theme, setTheme] = useState<Theme>(loadTheme)
     const [toast, setToast] = useState<string | null>(null)
+    const [saveWarning, setSaveWarning] = useState<string | null>(null)
     const [isExportOpen, setIsExportOpen] = useState(false)
     const [isExporting, setIsExporting] = useState(false)
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+    const [isHistoryOpen, setIsHistoryOpen] = useState(false)
     const [readerSettings, setReaderSettings] = useState<ReaderSettings>(loadReaderSettings)
+    const [historyLimit, setHistoryLimit] = useState(loadHistoryLimit)
+    const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([])
 
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     const previewContentRef = useRef<HTMLDivElement>(null)
     const exportMenuRef = useRef<HTMLDivElement>(null)
     const settingsPopoverRef = useRef<HTMLDivElement>(null)
+    const historyMenuRef = useRef<HTMLDivElement>(null)
     const activeScrollRef = useRef<'textarea' | 'preview' | null>(null)
     const isProgrammaticScrollRef = useRef(false)
     const scrollTimeoutRef = useRef<number | null>(null)
     const toastTimeoutRef = useRef<number | null>(null)
+    const lastSavedRef = useRef(text)
+    const lastSaveFailureRef = useRef<SaveFailureReason | null>(null)
+    const pendingCursorRef = useRef<number | null>(null)
+    const lastCaretRef = useRef<{ start: number; end: number }>({
+        start: text.length,
+        end: text.length,
+    })
+    const historyBusyRef = useRef(false)
 
     const deferredText = useDeferredValue(text)
     const processedMarkdown = useMemo(() => preprocessMarkdown(deferredText), [deferredText])
@@ -102,6 +132,58 @@ export default function App() {
         if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current)
         toastTimeoutRef.current = window.setTimeout(() => setToast(null), 2200)
     }, [])
+
+    useEffect(() => {
+        if (initialContent.truncated) {
+            showToast(saveFailureMessage('too-large'))
+            setSaveWarning(saveFailureMessage('too-large'))
+        }
+    }, [initialContent.truncated, showToast])
+
+    useEffect(() => {
+        let cancelled = false
+        void loadHistory().then((entries) => {
+            if (!cancelled) setHistoryEntries(entries)
+        })
+        return () => {
+            cancelled = true
+        }
+    }, [])
+
+    const rememberHistory = useCallback(async (previous: string, force = false) => {
+        if (!previous.trim() || historyBusyRef.current) return
+        historyBusyRef.current = true
+        try {
+            const result = await pushHistory(previous, {limit: historyLimit, force})
+            setHistoryEntries(result.entries)
+            if (!result.ok && result.reason === 'quota') {
+                showToast('حافظهٔ تاریخچه پر است؛ سند فعلی امن است')
+            }
+        } catch {
+            // History must never break editing.
+        } finally {
+            historyBusyRef.current = false
+        }
+    }, [historyLimit, showToast])
+
+    const captureCaret = useCallback(() => {
+        const textarea = textareaRef.current
+        if (!textarea) return
+        lastCaretRef.current = {
+            start: textarea.selectionStart ?? 0,
+            end: textarea.selectionEnd ?? 0,
+        }
+    }, [])
+    const applyTextChange = useCallback((next: string) => {
+        if (contentByteSize(next) > MAX_CONTENT_BYTES) {
+            const message = saveFailureMessage('too-large')
+            showToast(message)
+            setSaveWarning(message)
+            return false
+        }
+        setText(next)
+        return true
+    }, [showToast])
 
     useEffect(() => {
         return () => {
@@ -130,9 +212,68 @@ export default function App() {
     }, [readerSettings])
 
     useEffect(() => {
-        const id = window.setTimeout(() => saveContent(text), 500)
+        const id = window.setTimeout(() => {
+            if (text === lastSavedRef.current) return
+            const previous = lastSavedRef.current
+            const result = saveContent(text)
+            if (result.ok) {
+                void rememberHistory(previous, false)
+                lastSavedRef.current = text
+                lastSaveFailureRef.current = null
+                setSaveWarning(null)
+                return
+            }
+            const message = saveFailureMessage(result.reason)
+            setSaveWarning(message)
+            if (lastSaveFailureRef.current !== result.reason) {
+                lastSaveFailureRef.current = result.reason
+                showToast(message)
+            }
+        }, 500)
         return () => window.clearTimeout(id)
-    }, [text])
+    }, [text, showToast, rememberHistory])
+
+    useEffect(() => {
+        const flushSave = () => {
+            const current = textRef.current
+            if (current === lastSavedRef.current) return
+            const result = saveContent(current)
+            if (result.ok) {
+                lastSavedRef.current = current
+                lastSaveFailureRef.current = null
+            }
+        }
+
+        const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+            const current = textRef.current
+            if (current === lastSavedRef.current) return
+            const result = saveContent(current)
+            if (result.ok) {
+                lastSavedRef.current = current
+                lastSaveFailureRef.current = null
+                return
+            }
+            event.preventDefault()
+            event.returnValue = ''
+        }
+
+        window.addEventListener('beforeunload', handleBeforeUnload)
+        window.addEventListener('pagehide', flushSave)
+        return () => {
+            window.removeEventListener('beforeunload', handleBeforeUnload)
+            window.removeEventListener('pagehide', flushSave)
+        }
+    }, [])
+
+    useEffect(() => {
+        if (viewMode !== 'raw' && viewMode !== 'split') return
+        const cursor = pendingCursorRef.current
+        if (cursor == null || !textareaRef.current) return
+        pendingCursorRef.current = null
+        const textarea = textareaRef.current
+        textarea.focus()
+        textarea.setSelectionRange(cursor, cursor)
+    }, [viewMode, text])
 
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
@@ -142,6 +283,9 @@ export default function App() {
             }
             if (settingsPopoverRef.current && !settingsPopoverRef.current.contains(target)) {
                 setIsSettingsOpen(false)
+            }
+            if (historyMenuRef.current && !historyMenuRef.current.contains(target)) {
+                setIsHistoryOpen(false)
             }
         }
 
@@ -207,44 +351,114 @@ export default function App() {
         try {
             if (!navigator.clipboard?.readText) throw new Error('No clipboard API')
             const clip = await navigator.clipboard.readText()
-            if (!clip) return
+            if (!clip) {
+                showToast('کلیپ‌بورد خالی است')
+                return
+            }
 
+            const current = textRef.current
             const textarea = textareaRef.current
-            if (textarea) {
-                textarea.focus()
-                const start = textarea.selectionStart ?? 0
-                const end = textarea.selectionEnd ?? 0
+            const selection = textarea
+                ? {start: textarea.selectionStart ?? 0, end: textarea.selectionEnd ?? 0}
+                : lastCaretRef.current
 
-                if (text.length === 0) {
-                    setText(clip)
-                } else {
-                    const before = text.substring(0, start)
-                    const after = text.substring(end)
-                    setText(before + clip + after)
-                    requestAnimationFrame(() => {
-                        const newCursorPos = start + clip.length
-                        textarea.setSelectionRange(newCursorPos, newCursorPos)
-                    })
-                }
-                showToast('متن از کلیپ‌بورد جایگذاری شد')
-            } else {
-                setText(clip)
-                showToast('متن از کلیپ‌بورد جایگذاری شد')
+            const inserted = insertClipboardText(current, clip, selection)
+
+            if (contentByteSize(inserted.text) > MAX_CONTENT_BYTES) {
+                showToast(saveFailureMessage('too-large'))
+                setSaveWarning(saveFailureMessage('too-large'))
+                return
+            }
+
+            await rememberHistory(current, true)
+
+            if (!textarea) {
+                pendingCursorRef.current = inserted.cursor
+                setViewMode('raw')
+            }
+
+            if (!applyTextChange(inserted.text)) return
+            lastCaretRef.current = {start: inserted.cursor, end: inserted.cursor}
+            showToast('متن از کلیپ‌بورد جایگذاری شد')
+
+            if (textarea) {
+                requestAnimationFrame(() => {
+                    textarea.focus()
+                    textarea.setSelectionRange(inserted.cursor, inserted.cursor)
+                })
             }
         } catch {
             textareaRef.current?.focus()
-            showToast('لطفاً Ctrl+V را در کادر متن بزنید')
+            showToast('دسترسی به کلیپ‌بورد ممکن نیست')
         }
-    }, [text, showToast])
+    }, [showToast, applyTextChange, rememberHistory])
+
+    const handleClearDocument = useCallback(() => {
+        if (!textRef.current.trim()) return
+        const ok = window.confirm('کل سند از صفحه و حافظهٔ مرورگر پاک شود؟ نسخه‌های قبلی در تاریخچه می‌مانند.')
+        if (!ok) return
+        const current = textRef.current
+        const result = clearContent()
+        if (!result.ok) {
+            showToast(saveFailureMessage(result.reason))
+            return
+        }
+        void rememberHistory(current, true)
+        setText('')
+        lastSavedRef.current = ''
+        lastCaretRef.current = {start: 0, end: 0}
+        lastSaveFailureRef.current = null
+        setSaveWarning(null)
+        showToast('سند پاک شد')
+    }, [showToast, rememberHistory])
+
+    const handleRestoreHistory = useCallback((entry: HistoryEntry) => {
+        const current = textRef.current
+        if (current === entry.text) {
+            setIsHistoryOpen(false)
+            showToast('همین نسخه الان باز است')
+            return
+        }
+        if (contentByteSize(entry.text) > MAX_CONTENT_BYTES) {
+            showToast(saveFailureMessage('too-large'))
+            return
+        }
+        void rememberHistory(current, true)
+        setText(entry.text)
+        lastCaretRef.current = {start: entry.text.length, end: entry.text.length}
+        setIsHistoryOpen(false)
+        showToast('نسخه از تاریخچه بازیابی شد')
+    }, [showToast, rememberHistory])
+
+    const handleHistoryLimitChange = useCallback((raw: string) => {
+        void setHistoryLimitAndTrim(Number(raw)).then(({limit, entries}) => {
+            setHistoryLimit(limit)
+            setHistoryEntries(entries)
+        })
+    }, [])
+
+    const handleClearHistory = useCallback(() => {
+        if (historyEntries.length === 0) return
+        const ok = window.confirm('همهٔ نسخه‌های تاریخچه پاک شوند؟')
+        if (!ok) return
+        void clearHistory().then((result) => {
+            setHistoryEntries(result.entries)
+            showToast('تاریخچه پاک شد')
+        })
+    }, [historyEntries.length, showToast])
 
     const handleExport = useCallback(async (format: 'md' | 'html' | 'pdf' | 'png') => {
+        if (isExporting) return
         setIsExportOpen(false)
-        if (!text.trim()) {
+        const exportText = textRef.current
+        if (!exportText.trim()) {
             showToast('متنی برای خروجی گرفتن وجود ندارد')
             return
         }
 
         setIsExporting(true)
+        const previousViewMode = viewMode
+        let switchedFromRaw = false
         try {
             const {
                 exportAsHtml,
@@ -254,57 +468,85 @@ export default function App() {
             } = await import('./utils/exportUtils')
 
             if (format === 'md') {
-                exportAsMarkdown(preprocessMarkdown(text))
+                exportAsMarkdown(preprocessMarkdown(exportText))
                 showToast('فایل Markdown دانلود شد')
                 return
             }
 
-            // HTML/PDF/PNG need the rendered preview DOM
             if (viewMode === 'raw') {
+                switchedFromRaw = true
                 setViewMode('preview')
-                await new Promise<void>((resolve) => {
-                    requestAnimationFrame(() => {
-                        setTimeout(resolve, 80)
-                    })
-                })
             }
 
             await waitForPreviewSync(() => textRef.current === deferredTextRef.current)
+            if (textRef.current !== exportText) {
+                showToast('محتوا هنگام خروجی تغییر کرد؛ دوباره تلاش کنید')
+                return
+            }
+            await ensureFontsReady(readerSettings)
 
-            if (!previewContentRef.current) {
-                showToast('پیش‌نمایش آماده نیست؛ دوباره تلاش کنید')
+            const processed = preprocessMarkdown(exportText)
+            const preview = await waitForExportPreview(
+                () => previewContentRef.current,
+                processed,
+            )
+
+            if (textRef.current !== exportText) {
+                showToast('محتوا هنگام خروجی تغییر کرد؛ دوباره تلاش کنید')
                 return
             }
 
-            const mermaidCount = countMermaidBlocks(preprocessMarkdown(text))
-            await waitForMermaidReady(previewContentRef.current, mermaidCount)
+            const typography = {
+                fontKey: readerSettings.fontFamily,
+                fontKeyEn: readerSettings.fontFamilyEn,
+                fontKeyAr: readerSettings.fontFamilyAr,
+                fontFamily: getFontStack(readerSettings.fontFamily),
+                fontFamilyEn: getFontStackEn(readerSettings.fontFamilyEn),
+                fontFamilyAr: getFontStackAr(readerSettings.fontFamilyAr),
+                fontSize: readerSettings.fontSize,
+                lineHeight: readerSettings.lineHeight,
+            }
 
             if (format === 'html') {
-                await exportAsHtml(previewContentRef.current, theme)
-                showToast('فایل HTML دانلود شد')
+                await exportAsHtml(preview, theme, 'document.html', typography)
+                showToast('فایل HTML آفلاین دانلود شد')
             } else if (format === 'pdf') {
                 showToast('در حال ساخت فایل PDF...')
-                await exportAsPdf(previewContentRef.current, theme)
-                showToast('فایل PDF دانلود شد')
+                const result = await exportAsPdf(preview, theme, 'document.pdf')
+                showToast(result.truncated
+                    ? 'فایل PDF دانلود شد، اما به‌خاطر طول سند ناقص است'
+                    : 'فایل PDF دانلود شد')
             } else if (format === 'png') {
                 showToast('در حال ساخت تصویر...')
-                await exportAsPng(previewContentRef.current, theme)
-                showToast('تصویر PNG دانلود شد')
+                const result = await exportAsPng(preview, theme)
+                showToast(result.truncated
+                    ? 'تصویر PNG دانلود شد، اما به‌خاطر طول سند ناقص است'
+                    : 'تصویر PNG دانلود شد')
             }
         } catch (err) {
             console.error(err)
-            if (format === 'pdf') {
+            const message = err instanceof Error ? err.message : ''
+            if (message.includes('Preview not ready') || message.includes('Preview sync')) {
+                showToast('پیش‌نمایش هنوز آماده نیست؛ دوباره تلاش کنید')
+            } else if (format === 'pdf') {
                 showToast('ساخت PDF ناموفق بود')
             } else {
                 showToast('خطا در دریافت خروجی')
             }
         } finally {
+            if (switchedFromRaw) setViewMode(previousViewMode)
             setIsExporting(false)
         }
-    }, [text, theme, showToast, viewMode])
+    }, [theme, showToast, viewMode, readerSettings, isExporting])
 
     useEffect(() => {
         function handleKeyDown(e: KeyboardEvent) {
+            if (e.key === 'Escape') {
+                setIsExportOpen(false)
+                setIsSettingsOpen(false)
+                setIsHistoryOpen(false)
+                return
+            }
             if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'v') {
                 e.preventDefault()
                 void handlePaste()
@@ -330,11 +572,16 @@ export default function App() {
                 ref={textareaRef}
                 className="textarea"
                 value={text}
-                onChange={(e) => setText(e.target.value)}
+                onChange={(e) => applyTextChange(e.target.value)}
+                onSelect={captureCaret}
+                onKeyUp={captureCaret}
+                onClick={captureCaret}
+                onBlur={captureCaret}
                 onScroll={handleTextareaScroll}
                 placeholder="متن فارسی، فرمول هوش مصنوعی یا کدهای خود را اینجا بنویسید یا جایگذاری کنید…"
                 dir="auto"
                 spellCheck={false}
+                disabled={isExporting}
             />
         </section>
     )
@@ -376,12 +623,14 @@ export default function App() {
                     <article className="markdown-body">
                         <Suspense
                             fallback={
-                                <p className="preview-loading" aria-busy="true">
+                                <p className="preview-loading" aria-busy="true" data-preview-pending="true">
                                     در حال آماده‌سازی پیش‌نمایش…
                                 </p>
                             }
                         >
-                            <MarkdownPreview markdown={processedMarkdown} theme={theme}/>
+                            <PreviewErrorBoundary>
+                                <MarkdownPreview markdown={processedMarkdown} theme={theme}/>
+                            </PreviewErrorBoundary>
                         </Suspense>
                     </article>
                 )}
@@ -407,9 +656,11 @@ export default function App() {
                             className="btn btn-ghost"
                             onClick={() => setIsSettingsOpen((prev) => !prev)}
                             title="تنظیمات ظاهر و تایپوگرافی"
+                            aria-expanded={isSettingsOpen}
+                            aria-haspopup="dialog"
                         >
                             <SlidersIcon/>
-                            ظاهر
+                            <span className="btn-label">ظاهر</span>
                         </button>
                         {isSettingsOpen && (
                             <div className="settings-popover" role="dialog" aria-label="تنظیمات تایپوگرافی">
@@ -522,6 +773,8 @@ export default function App() {
                             className="btn btn-ghost"
                             onClick={() => setIsExportOpen((prev) => !prev)}
                             disabled={isEmpty || isExporting || isPreviewStale}
+                            aria-expanded={isExportOpen}
+                            aria-haspopup="menu"
                             title={
                                 isPreviewStale
                                     ? 'پیش‌نمایش در حال به‌روزرسانی است'
@@ -531,7 +784,7 @@ export default function App() {
                             }
                         >
                             <DownloadIcon/>
-                            خروجی
+                            <span className="btn-label">خروجی</span>
                             <ChevronDownIcon/>
                         </button>
                         {isExportOpen && (
@@ -543,7 +796,7 @@ export default function App() {
                                 <button type="button" className="dropdown-item"
                                         onClick={() => void handleExport('html')}>
                                     <CodeIcon/>
-                                    <span>فایل وب (.html)</span>
+                                    <span>فایل وب آفلاین (.html)</span>
                                 </button>
                                 <button type="button" className="dropdown-item"
                                         onClick={() => void handleExport('pdf')}>
@@ -567,14 +820,89 @@ export default function App() {
                     >
                         {theme === 'dark' ? <SunIcon/> : <MoonIcon/>}
                     </button>
+                    <div className="dropdown" ref={historyMenuRef}>
+                        <button
+                            type="button"
+                            className="btn btn-ghost"
+                            onClick={() => setIsHistoryOpen((prev) => !prev)}
+                            title="تاریخچه تغییرات"
+                            aria-label="تاریخچه تغییرات"
+                            aria-expanded={isHistoryOpen}
+                            aria-haspopup="dialog"
+                        >
+                            <HistoryIcon/>
+                            <span className="btn-label">تاریخچه</span>
+                        </button>
+                        {isHistoryOpen && (
+                            <div className="history-popover" role="dialog" aria-label="تاریخچه تغییرات">
+                                <div className="settings-row">
+                                    <div className="settings-label">
+                                        <span>حداکثر نسخه</span>
+                                        <span className="settings-value">{historyLimit}</span>
+                                    </div>
+                                    <input
+                                        className="settings-input"
+                                        type="number"
+                                        min={1}
+                                        max={MAX_HISTORY_LIMIT}
+                                        value={historyLimit}
+                                        onChange={(e) => handleHistoryLimitChange(e.target.value)}
+                                        aria-label="حداکثر تعداد نسخه‌های تاریخچه"
+                                    />
+                                    <p className="history-hint">پیش‌فرض ۱۰؛ در IndexedDB مرورگر ذخیره می‌شود.</p>
+                                </div>
+                                {historyEntries.length === 0 ? (
+                                    <p className="history-empty">هنوز نسخه‌ای ذخیره نشده است.</p>
+                                ) : (
+                                    <ul className="history-list">
+                                        {historyEntries.map((entry) => (
+                                            <li key={entry.id}>
+                                                <button
+                                                    type="button"
+                                                    className="history-item"
+                                                    onClick={() => handleRestoreHistory(entry)}
+                                                >
+                                                    <span className="history-item-time">
+                                                        {new Date(entry.savedAt).toLocaleString('fa-IR')}
+                                                    </span>
+                                                    <span className="history-item-snippet">
+                                                        {historySnippet(entry.text)}
+                                                    </span>
+                                                </button>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                                <button
+                                    type="button"
+                                    className="btn btn-ghost history-clear"
+                                    onClick={handleClearHistory}
+                                    disabled={historyEntries.length === 0}
+                                >
+                                    پاک کردن تاریخچه
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                    <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={handleClearDocument}
+                        disabled={isEmpty}
+                        title="پاک کردن سند"
+                        aria-label="پاک کردن سند"
+                    >
+                        <span className="btn-label">پاک کردن</span>
+                    </button>
                     <button
                         type="button"
                         className="btn btn-ghost"
                         onClick={() => void handlePaste()}
                         title="جایگذاری از کلیپ‌بورد"
+                        aria-label="جایگذاری از کلیپ‌بورد"
                     >
                         <PasteIcon/>
-                        جایگذاری
+                        <span className="btn-label">جایگذاری</span>
                     </button>
                 </div>
             </header>
@@ -588,7 +916,7 @@ export default function App() {
                     onClick={() => setViewMode('preview')}
                 >
                     <EyeIcon/>
-                    پیش‌نمایش
+                    <span className="mode-label">پیش‌نمایش</span>
                 </button>
                 <button
                     type="button"
@@ -598,7 +926,7 @@ export default function App() {
                     onClick={() => setViewMode('split')}
                 >
                     <SplitIcon/>
-                    دو پنجره
+                    <span className="mode-label">دو پنجره</span>
                 </button>
                 <button
                     type="button"
@@ -608,7 +936,7 @@ export default function App() {
                     onClick={() => setViewMode('raw')}
                 >
                     <EditIcon/>
-                    ویرایش
+                    <span className="mode-label">ویرایش</span>
                 </button>
             </div>
 
@@ -623,6 +951,11 @@ export default function App() {
                 )}
             </main>
 
+            {saveWarning && (
+                <div className="save-warning" role="status" aria-live="polite">
+                    {saveWarning}
+                </div>
+            )}
             {toast && (
                 <div className="toast" role="status" aria-live="polite">
                     {toast}
@@ -664,6 +997,17 @@ function PasteIcon() {
              strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
             <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+        </svg>
+    )
+}
+
+function HistoryIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+             strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 1 0 3-6.7"/>
+            <polyline points="3 4 3 9 8 9"/>
+            <polyline points="12 7 12 12 16 14"/>
         </svg>
     )
 }
