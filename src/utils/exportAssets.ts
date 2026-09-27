@@ -251,7 +251,7 @@ async function loadKatexCssOffline(): Promise<string> {
     ])
     const dataUrls = Object.fromEntries(fontEntries)
 
-    return katexCssRaw.replace(/url\((['"]?)([^)'"]+)\1\)/g, (full, _q: string, raw: string) => {
+    return katexCssRaw.replace(/url\((['"]?)([^)'"]+)\1\)/g, (_full, _q: string, raw: string) => {
         const file = raw.replace(/^\.\//, '').split('/').pop() || raw
         const dataUrl = dataUrls[file]
         // Drop unresolved font URLs so export CSP (font-src data:) is not violated by leftovers.
