@@ -1,4 +1,5 @@
 import {compactUrl} from './urlCompact'
+import {styleLooksSafe} from './styleSafety'
 
 const DROPPED_SVG_TAGS = new Set([
     'script',
@@ -21,23 +22,6 @@ const DROPPED_SVG_TAGS = new Set([
 function isSafeSvgUrl(value: string): boolean {
     const compact = compactUrl(value.trim())
     return Boolean(compact) && compact.startsWith('#')
-}
-
-function styleLooksSafe(style: string): boolean {
-    const lower = style.toLowerCase()
-    if (lower.includes('javascript:') || lower.includes('expression(') || lower.includes('@import')) {
-        return false
-    }
-    // Allow fragment paint servers (url(#id)); block network urls.
-    const urls = lower.match(/url\s*\(\s*([^)]+)\s*\)/g) || []
-    for (const raw of urls) {
-        const inner = raw.replace(/^url\s*\(\s*/i, '').replace(/\s*\)$/, '').replace(/['"]/g, '')
-        if (inner.startsWith('#')) continue
-        if (inner.startsWith('data:') || /^https?:/i.test(inner) || inner.startsWith('//')) {
-            return false
-        }
-    }
-    return true
 }
 
 /** Second-pass filter for Mermaid SVG before it is inserted into the page. */

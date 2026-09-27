@@ -9,17 +9,11 @@ $$
 Matrix:
 
 $$
-\begin{pmatrix}
-1 & 2 \\
-3 & 4
-\end{pmatrix}
+\begin{pmatrix} 1 & 2 \\ 3 & 4 \end{pmatrix}
 $$
 
 Aligned:
 
 $$
-\begin{aligned}
-x &= y + 1 \\
-y &= 2z
-\end{aligned}
+\begin{aligned} x &= y + 1 \\ y &= 2z \end{aligned}
 $$

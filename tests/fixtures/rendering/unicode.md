@@ -1,3 +1,1 @@
-ZWNJ: می‌خواهم
-Emoji: 👩‍💻 ✅
-Mixed: (نسخه) [v2]
+ZWNJ: می‌خواهم Emoji: 👩‍💻 ✅ Mixed: (نسخه) [v2]

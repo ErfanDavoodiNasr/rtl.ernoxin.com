@@ -1,9 +1,22 @@
 import {defineConfig} from 'vite'
 import react from '@vitejs/plugin-react'
 
-export default defineConfig({
+export default defineConfig(({command}) => ({
     base: './',
-    plugins: [react()],
+    plugins: [
+        react(),
+        {
+            name: 'dev-csp-ws',
+            transformIndexHtml(html) {
+                // Production zip must not allow ws/wss; Vite HMR needs them in dev only.
+                if (command !== 'serve') return html
+                return html.replace(
+                    "connect-src 'self'",
+                    "connect-src 'self' ws: wss:",
+                )
+            },
+        },
+    ],
     server: {
         port: 1000,
         open: true,
@@ -40,4 +53,4 @@ export default defineConfig({
     optimizeDeps: {
         include: ['react', 'react-dom', 'react-markdown', 'remark-gfm'],
     },
-})
+}))

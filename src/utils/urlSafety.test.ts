@@ -7,6 +7,8 @@ describe('safeMarkdownUrl', () => {
         expect(safeMarkdownUrl('mailto:a@b.com')).toBe('mailto:a@b.com')
         expect(safeMarkdownUrl('#section')).toBe('#section')
         expect(safeMarkdownUrl('/docs')).toBe('/docs')
+        expect(safeMarkdownUrl('./rel')).toBe('./rel')
+        expect(safeMarkdownUrl('../up')).toBe('../up')
     })
 
     it('strips scriptable protocols', () => {
@@ -15,13 +17,24 @@ describe('safeMarkdownUrl', () => {
         expect(safeMarkdownUrl('vbscript:msgbox(1)')).toBe('')
         expect(safeMarkdownUrl('java\nscript:alert(1)')).toBe('')
         expect(safeMarkdownUrl('java\tscript:alert(1)')).toBe('')
+        expect(safeMarkdownUrl('file:///etc/passwd')).toBe('')
+        expect(safeMarkdownUrl('blob:https://x/y')).toBe('')
+    })
+
+    it('keeps spaced relative paths while rejecting protocol-relative hosts', () => {
+        expect(safeMarkdownUrl('./my file.md')).toBe('./my file.md')
+        expect(safeMarkdownUrl('//evil.example/phish')).toBe('')
+        expect(safeMarkdownUrl(' //evil.example/x')).toBe('')
+        expect(safeMarkdownUrl('/\n/evil.example')).toBe('')
     })
 })
 
 describe('isExternalHttpUrl', () => {
-    it('detects only absolute http(s) links', () => {
+    it('detects absolute http(s) and protocol-relative links', () => {
         expect(isExternalHttpUrl('https://x.com')).toBe(true)
+        expect(isExternalHttpUrl('//evil.example')).toBe(true)
         expect(isExternalHttpUrl('#x')).toBe(false)
         expect(isExternalHttpUrl('mailto:a@b.com')).toBe(false)
+        expect(isExternalHttpUrl('/docs')).toBe(false)
     })
 })

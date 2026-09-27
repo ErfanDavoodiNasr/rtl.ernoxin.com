@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useState} from 'react'
 import {PrismLight as SyntaxHighlighter} from 'react-syntax-highlighter'
 import {vs, vscDarkPlus} from 'react-syntax-highlighter/dist/esm/styles/prism'
+import {containsBidiControls, visualizeBidiControls} from '../utils/bidiControls'
 import {ensureMonoFont} from '../utils/fontLoader'
 
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
@@ -154,7 +155,10 @@ function normalizeLanguage(lang: string): string {
 
 export default function CodeBlock({language, value, theme}: CodeBlockProps) {
     const [copied, setCopied] = useState(false)
+    const [showBidiSafe, setShowBidiSafe] = useState(false)
     const normalizedLang = normalizeLanguage(language)
+    const hasBidiControls = containsBidiControls(value)
+    const displayValue = showBidiSafe && hasBidiControls ? visualizeBidiControls(value) : value
 
     useEffect(() => {
         ensureMonoFont()
@@ -169,6 +173,7 @@ export default function CodeBlock({language, value, theme}: CodeBlockProps) {
     const handleCopy = useCallback(() => {
         const copy = async () => {
             try {
+                // Always copy the original source — never the visualized form.
                 if (navigator.clipboard?.writeText) {
                     await navigator.clipboard.writeText(value)
                 } else {
@@ -194,25 +199,44 @@ export default function CodeBlock({language, value, theme}: CodeBlockProps) {
         <div className="code-block-wrapper" dir="ltr">
             <div className="code-block-header">
                 <span className="code-lang">{language || 'text'}</span>
-                <button
-                    type="button"
-                    className={`code-copy-btn ${copied ? 'copied' : ''}`}
-                    onClick={handleCopy}
-                    aria-label="کپی کد"
-                >
-                    {copied ? (
-                        <>
-                            <CheckIcon/>
-                            <span>کپی شد!</span>
-                        </>
-                    ) : (
-                        <>
-                            <CopyIcon/>
-                            <span>کپی کد</span>
-                        </>
+                <div className="code-block-actions">
+                    {hasBidiControls && (
+                        <button
+                            type="button"
+                            className={`code-bidi-btn ${showBidiSafe ? 'active' : ''}`}
+                            onClick={() => setShowBidiSafe((prev) => !prev)}
+                            aria-pressed={showBidiSafe}
+                            title="این بلوک نویسه‌های جهت‌دار مشکوک دارد"
+                        >
+                            {showBidiSafe ? 'نمایش اصلی' : 'هشدار BiDi'}
+                        </button>
                     )}
-                </button>
+                    <button
+                        type="button"
+                        className={`code-copy-btn ${copied ? 'copied' : ''}`}
+                        onClick={handleCopy}
+                        aria-label="کپی کد"
+                    >
+                        {copied ? (
+                            <>
+                                <CheckIcon/>
+                                <span>کپی شد!</span>
+                            </>
+                        ) : (
+                            <>
+                                <CopyIcon/>
+                                <span>کپی کد</span>
+                            </>
+                        )}
+                    </button>
+                </div>
             </div>
+            {hasBidiControls && (
+                <div className="code-bidi-warning" role="status">
+                    نویسه‌های کنترل جهت (Trojan Source) در این کد دیده شد.
+                    کپی همیشه نسخهٔ اصلی را می‌دهد؛ برای مشاهدهٔ امن از «هشدار BiDi» استفاده کنید.
+                </div>
+            )}
             <div className="code-block-body">
                 <SyntaxHighlighter
                     language={normalizedLang}
@@ -256,7 +280,7 @@ export default function CodeBlock({language, value, theme}: CodeBlockProps) {
                         },
                     }}
                 >
-                    {value}
+                    {displayValue}
                 </SyntaxHighlighter>
             </div>
         </div>

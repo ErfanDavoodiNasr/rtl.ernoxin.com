@@ -1,4 +1,5 @@
 import {compactUrl} from './urlCompact'
+import {styleLooksSafe} from './styleSafety'
 
 function downloadBlob(blob: Blob, filename: string) {
     const url = URL.createObjectURL(blob)
@@ -32,11 +33,22 @@ const DROPPED_EXPORT_TAGS = new Set([
     'meta',
     'base',
     'form',
+    'animate',
+    'animatetransform',
+    'set',
+    'use',
+    'image',
+    'picture',
+    'source',
+    'video',
+    'audio',
+    'track',
 ])
 
 function isSafeExportUrl(value: string): boolean {
     const compact = compactUrl(value.trim())
     if (!compact) return false
+    if (compact.startsWith('//')) return false
     if (compact.startsWith('#') || compact.startsWith('/') || compact.startsWith('./') || compact.startsWith('../')) {
         return true
     }
@@ -45,11 +57,25 @@ function isSafeExportUrl(value: string): boolean {
         lower.startsWith('javascript:') ||
         lower.startsWith('vbscript:') ||
         lower.startsWith('data:') ||
-        lower.startsWith('blob:')
+        lower.startsWith('blob:') ||
+        lower.startsWith('file:')
     ) {
         return false
     }
     return /^(https?:|mailto:)/i.test(compact)
+}
+
+/** Validate each candidate URL in a srcset attribute. */
+function isSafeSrcSet(value: string): boolean {
+    const parts = value.split(',').map((part) => part.trim()).filter(Boolean)
+    if (parts.length === 0) return false
+    for (const part of parts) {
+        const url = part.split(/\s+/)[0] || ''
+        if (!isSafeExportUrl(url) || !/^https?:/i.test(compactUrl(url.trim()))) {
+            return false
+        }
+    }
+    return true
 }
 
 /** Remove scriptable SVG/HTML before it is written into an exported file. */
@@ -75,12 +101,16 @@ export function sanitizeExportedMarkup(html: string): string {
             if (lower === 'href' || lower === 'xlink:href' || lower === 'src' || lower === 'action') {
                 const value = el.getAttribute(name) ?? ''
                 if (!isSafeExportUrl(value)) el.removeAttribute(name)
+                continue
+            }
+            if (lower === 'srcset') {
+                const value = el.getAttribute(name) ?? ''
+                if (!isSafeSrcSet(value)) el.removeAttribute(name)
+                continue
             }
             if (lower === 'style') {
-                const style = (el.getAttribute(name) ?? '').toLowerCase()
-                if (style.includes('javascript:') || style.includes('expression(')) {
-                    el.removeAttribute(name)
-                }
+                const style = el.getAttribute(name) ?? ''
+                if (!styleLooksSafe(style)) el.removeAttribute(name)
             }
         }
     })
@@ -463,13 +493,9 @@ export async function exportAsPng(
     filename = 'document.png',
 ): Promise<RasterExportResult> {
     const {canvas, truncated} = await captureElement(element, safeExportTheme(theme))
-    const dataUrl = canvas.toDataURL('image/png')
-    const a = document.createElement('a')
-    a.href = dataUrl
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+    if (!blob) throw new Error('Failed to encode PNG')
+    downloadBlob(blob, filename)
     return {truncated}
 }
 
@@ -542,8 +568,9 @@ export async function exportAsPdf(
 
         if (index > 0) pdf.addPage()
         const sliceHeightMm = (slice.srcHeight * contentWidth) / canvas.width
+        const jpeg = canvasToJpegDataUrl(sliceCanvas)
         pdf.addImage(
-            canvasToJpegDataUrl(sliceCanvas),
+            jpeg,
             'JPEG',
             margin,
             margin,
@@ -552,6 +579,9 @@ export async function exportAsPdf(
             undefined,
             'FAST',
         )
+        // Release slice canvas backing store promptly on memory-constrained devices.
+        sliceCanvas.width = 0
+        sliceCanvas.height = 0
     }
 
     // Prefer blob download (same pattern as MD/HTML) over jsPDF's save() quirks.
@@ -560,6 +590,9 @@ export async function exportAsPdf(
         throw new Error('Failed to build PDF blob')
     }
     downloadBlob(blob, filename)
+    // Drop the full-page canvas reference as soon as slicing is done.
+    canvas.width = 0
+    canvas.height = 0
     return {truncated, engine: 'raster-jpeg'}
 }
 

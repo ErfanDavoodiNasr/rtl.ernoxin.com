@@ -1,4 +1,15 @@
-import {lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState,} from 'react'
+import {
+    type ChangeEvent,
+    type DragEvent,
+    lazy,
+    Suspense,
+    useCallback,
+    useDeferredValue,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react'
 import Logo from './components/Logo'
 import PreviewErrorBoundary from './components/PreviewErrorBoundary'
 import {ensureFontsReady, loadFontsForSettings} from './utils/fontLoader'
@@ -24,6 +35,7 @@ import {
 } from './utils/storageUtils'
 import {clearHistory, loadHistory, pushHistory, setHistoryLimitAndTrim,} from './utils/historyStore'
 import {insertClipboardText} from './utils/clipboardInsert'
+import {isImportableFile, readTextFile} from './utils/fileImport'
 import './App.css'
 
 const MarkdownPreview = lazy(() => import('./components/MarkdownPreview'))
@@ -115,12 +127,19 @@ export default function App() {
         start: text.length,
         end: text.length,
     })
+    const fileInputRef = useRef<HTMLInputElement>(null)
     const historyBusyRef = useRef(false)
+    const importBusyRef = useRef(false)
 
     const deferredText = useDeferredValue(text)
     const processedMarkdown = useMemo(() => preprocessMarkdown(deferredText), [deferredText])
     const isEmpty = !text.trim()
     const isPreviewStale = deferredText !== text
+    const charCount = text.length
+    const wordCount = useMemo(() => {
+        const trimmed = text.trim()
+        return trimmed ? trimmed.split(/\s+/).length : 0
+    }, [text])
 
     const textRef = useRef(text)
     const deferredTextRef = useRef(deferredText)
@@ -447,6 +466,72 @@ export default function App() {
         })
     }, [historyEntries.length, showToast])
 
+    const importFileContent = useCallback(async (file: File) => {
+        if (importBusyRef.current) {
+            showToast('ورود فایل قبلی هنوز تمام نشده')
+            return
+        }
+        importBusyRef.current = true
+        try {
+            const imported = await readTextFile(file)
+            if (!imported.trim()) {
+                showToast('فایل خالی است')
+                return
+            }
+            if (contentByteSize(imported) > MAX_CONTENT_BYTES) {
+                showToast(saveFailureMessage('too-large'))
+                setSaveWarning(saveFailureMessage('too-large'))
+                return
+            }
+            const snapshot = textRef.current
+            if (snapshot.trim() && snapshot !== imported) {
+                const ok = window.confirm('متن فعلی با محتوای فایل جایگزین شود؟ نسخهٔ فعلی در تاریخچه می‌ماند.')
+                if (!ok) return
+            }
+            // Wait briefly if autosave history is mid-flight, then force-push snapshot.
+            const deadline = Date.now() + 1500
+            while (historyBusyRef.current && Date.now() < deadline) {
+                await new Promise((r) => setTimeout(r, 20))
+            }
+            if (textRef.current !== snapshot) {
+                showToast('متن هنگام ورود فایل تغییر کرد؛ دوباره تلاش کنید')
+                return
+            }
+            await rememberHistory(snapshot, true)
+            if (textRef.current !== snapshot) {
+                showToast('متن هنگام ورود فایل تغییر کرد؛ دوباره تلاش کنید')
+                return
+            }
+            if (!applyTextChange(imported)) return
+            lastCaretRef.current = {start: imported.length, end: imported.length}
+            if (viewMode === 'preview') setViewMode('split')
+            showToast('فایل وارد شد')
+        } catch (err) {
+            const reason = err instanceof Error ? err.message : ''
+            if (reason === 'too-large') showToast(saveFailureMessage('too-large'))
+            else if (reason === 'binary') showToast('فایل باینری پشتیبانی نمی‌شود')
+            else showToast('خواندن فایل ممکن نیست')
+        } finally {
+            importBusyRef.current = false
+        }
+    }, [showToast, applyTextChange, rememberHistory, viewMode])
+
+    const handleFileInputChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0]
+        event.target.value = ''
+        if (file) void importFileContent(file)
+    }, [importFileContent])
+
+    const handleDropImport = useCallback((event: DragEvent) => {
+        event.preventDefault()
+        const file = event.dataTransfer.files?.[0]
+        if (!isImportableFile(file)) {
+            showToast('فقط فایل‌های .md و .txt پشتیبانی می‌شوند')
+            return
+        }
+        void importFileContent(file)
+    }, [importFileContent, showToast])
+
     const handleExport = useCallback(async (format: 'md' | 'html' | 'pdf' | 'png') => {
         if (isExporting) return
         setIsExportOpen(false)
@@ -563,10 +648,19 @@ export default function App() {
     }, [handlePaste])
 
     const renderInputPanel = (
-        <section className="panel panel-input" aria-label="ورودی متن">
+        <section
+            className="panel panel-input"
+            aria-label="ورودی متن"
+            onDragOver={(e) => {
+                e.preventDefault()
+            }}
+            onDrop={handleDropImport}
+        >
             <div className="panel-header">
                 <span className="panel-title">متن خود را اینجا بچسبانید</span>
-                <span className="panel-hint">Ctrl+V یا دکمه جایگذاری</span>
+                <span className="panel-hint">
+                    {charCount.toLocaleString('fa-IR')} نویسه · {wordCount.toLocaleString('fa-IR')} واژه
+                </span>
             </div>
             <textarea
                 ref={textareaRef}
@@ -582,6 +676,15 @@ export default function App() {
                 dir="auto"
                 spellCheck={false}
                 disabled={isExporting}
+            />
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept=".md,.txt,.markdown,text/plain,text/markdown"
+                className="visually-hidden"
+                aria-hidden="true"
+                tabIndex={-1}
+                onChange={handleFileInputChange}
             />
         </section>
     )
@@ -887,6 +990,17 @@ export default function App() {
                     <button
                         type="button"
                         className="btn btn-ghost"
+                        onClick={() => fileInputRef.current?.click()}
+                        title="ورود فایل Markdown یا متن"
+                        aria-label="ورود فایل"
+                        disabled={isExporting}
+                    >
+                        <UploadIcon/>
+                        <span className="btn-label">ورود فایل</span>
+                    </button>
+                    <button
+                        type="button"
+                        className="btn btn-ghost"
                         onClick={handleClearDocument}
                         disabled={isEmpty}
                         title="پاک کردن سند"
@@ -997,6 +1111,17 @@ function PasteIcon() {
              strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
             <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+        </svg>
+    )
+}
+
+function UploadIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+             strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
         </svg>
     )
 }

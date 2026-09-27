@@ -254,7 +254,8 @@ async function loadKatexCssOffline(): Promise<string> {
     return katexCssRaw.replace(/url\((['"]?)([^)'"]+)\1\)/g, (full, _q: string, raw: string) => {
         const file = raw.replace(/^\.\//, '').split('/').pop() || raw
         const dataUrl = dataUrls[file]
-        return dataUrl ? `url('${dataUrl}')` : full
+        // Drop unresolved font URLs so export CSP (font-src data:) is not violated by leftovers.
+        return dataUrl ? `url('${dataUrl}')` : 'local(none)'
     })
 }
 

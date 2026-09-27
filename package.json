@@ -14,10 +14,10 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
-    "test:security": "vitest run src/utils/urlSafety.test.ts src/utils/svgSanitize.test.ts src/components/MarkdownPreview.security.test.tsx src/utils/exportUtils.test.ts",
+    "test:security": "vitest run src/utils/urlSafety.test.ts src/utils/svgSanitize.test.ts src/utils/styleSafety.test.ts src/utils/bidiControls.test.ts src/components/MarkdownPreview.security.test.tsx src/utils/exportUtils.test.ts",
     "test:rendering": "vitest run src/utils/renderingFixtures.test.ts src/utils/markdownUtils.test.ts src/utils/bidiUtils.test.ts",
     "test:exports": "vitest run src/utils/exportUtils.test.ts && playwright test e2e/editor-pdf.spec.ts --project=chromium",
-    "test:integration": "vitest run src/utils/historyStore.test.ts src/utils/clipboardInsert.test.ts src/utils/storageUtils.test.ts src/utils/exportUtils.test.ts",
+    "test:integration": "vitest run src/utils/historyStore.test.ts src/utils/clipboardInsert.test.ts src/utils/storageUtils.test.ts src/utils/exportUtils.test.ts src/utils/fileImport.test.ts",
     "test:release": "npm run lint && npm run typecheck && npm run test:coverage && npm run test:security && npm run test:rendering && npm run build && npm run test:e2e -- --project=chromium --project=firefox --project=mobile",
     "og-image": "node scripts/generate-og-image.mjs"
   },

@@ -147,3 +147,24 @@ describe('getBidiTextProps', () => {
         ).toBe('ltr')
     })
 })
+
+describe('detectTextDirection — product corpus', () => {
+    it('handles Persian, English, mixed, digits, URLs, paths, and code-like prose', () => {
+        expect(detectTextDirection('این یک متن فارسی ساده است.')).toBe('rtl')
+        expect(detectTextDirection('This is an English sentence.')).toBe('ltr')
+        expect(detectTextDirection('برای نصب React باید npm install را اجرا کنید.')).toBe('rtl')
+        expect(detectTextDirection('نسخه 12.4 در تاریخ 1405/06/24 منتشر شد.')).toBe('rtl')
+        expect(detectTextDirection('نسخه ۱۲.۴ در تاریخ ۱۴۰۵/۰۶/۲۴ منتشر شد.')).toBe('rtl')
+        expect(detectTextDirection('برای اطلاعات بیشتر به https://example.com/docs مراجعه کنید.')).toBe('rtl')
+        expect(detectTextDirection('ایمیل support@example.com را بررسی کنید.')).toBe('rtl')
+        expect(detectTextDirection('فایل /home/user/project/src/App.tsx را باز کنید.')).toBe('rtl')
+        expect(detectTextDirection('دستور npm run build را اجرا کنید.')).toBe('rtl')
+        expect(detectTextDirection('متغیر userId باید مقدار داشته باشد.')).toBe('rtl')
+        expect(detectTextDirection('این قابلیت (React 19) فعال است.')).toBe('rtl')
+        expect(detectTextDirection('تابع calculate(x, y) مقدار O(n²) را در نسخه v2.1 برمی‌گرداند.')).toBe('rtl')
+    })
+
+    it('keeps ZWNJ Persian words intact for direction', () => {
+        expect(detectTextDirection('می‌خواهم این راه‌حل را بررسی کنم')).toBe('rtl')
+    })
+})

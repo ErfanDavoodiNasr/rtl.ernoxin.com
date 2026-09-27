@@ -51,4 +51,15 @@ describe('sanitizeSvg', () => {
         expect(cleaned).toContain('<circle')
         expect(cleaned.toLowerCase()).not.toContain('url(https://')
     })
+
+    it('strips CSS-escape smuggled network paint servers', () => {
+        const cleaned = sanitizeSvg([
+            '<svg xmlns="http://www.w3.org/2000/svg">',
+            '<path style="fill:url(\\68ttps://evil.com/x)" d="M0 0"/>',
+            '<path style="fill:url(#ok)" d="M1 1"/>',
+            '</svg>',
+        ].join(''))
+        expect(cleaned.toLowerCase()).not.toContain('evil.com')
+        expect(cleaned).toContain('fill:url(#ok)')
+    })
 })

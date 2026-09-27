@@ -41,6 +41,12 @@ jobs:
         run: |
           cd dist
           zip -r ../rtl.zip .
+          cd ..
+          mkdir -p /tmp/rtl-release-check
+          unzip -q -o rtl.zip -d /tmp/rtl-release-check
+          test -f /tmp/rtl-release-check/index.html
+          test -f /tmp/rtl-release-check/.htaccess
+          grep -q 'src="./assets/' /tmp/rtl-release-check/index.html
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

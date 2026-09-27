@@ -152,3 +152,36 @@ describe('preprocessMarkdown — realistic ChatGPT paste scenarios', () => {
         expect(result).toContain('Note: این راه‌حل')
     })
 })
+
+describe('preprocessMarkdown — fidelity / fuzz guards', () => {
+    it('is idempotent for converted math', () => {
+        const input = String.raw`\(x^2\) and \ce{H2O}`
+        const once = preprocessMarkdown(input)
+        expect(preprocessMarkdown(once)).toBe(once)
+    })
+
+    it('preserves Windows paths, URLs, JSON fences, and ZWNJ', () => {
+        const input = [
+            'فایل C:\\Users\\test\\App.tsx',
+            'لینک https://example.com/foo_bar',
+            'می‌خواهم',
+            '```json',
+            '{"a": "| b | c |"}',
+            '```',
+        ].join('\n')
+        const result = preprocessMarkdown(input)
+        expect(result).toContain('C:\\Users\\test\\App.tsx')
+        expect(result).toContain('https://example.com/foo_bar')
+        expect(result).toContain('می‌خواهم')
+        expect(result).toContain('"a": "| b | c |"')
+    })
+
+    it('does not throw on random ASCII noise under size bound', () => {
+        const alphabet = 'abcDEF012[](){}|*_~`$#\\/\n\r\t <>:'
+        for (let i = 0; i < 40; i++) {
+            let s = ''
+            for (let j = 0; j < 200; j++) s += alphabet[(i * 17 + j * 31) % alphabet.length]
+            expect(() => preprocessMarkdown(s)).not.toThrow()
+        }
+    })
+})

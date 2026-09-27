@@ -193,8 +193,28 @@ describe('buildHtmlDocument', () => {
         expect(html).toContain('<svg')
         expect(html).toContain('<rect')
     })
-})
 
+    it('strips srcset, protocol-relative URLs, and CSS beacons from exported HTML', () => {
+        const html = buildHtmlDocument({
+            theme: 'dark',
+            katexCss: '',
+            bodyHtml: [
+                '<picture><source srcset="javascript:alert(1)"><img alt="a"></picture>',
+                '<a href="//evil.example/phish">phish</a>',
+                '<img src="//evil.example/x.png" alt="x">',
+                '<div style="background-image:url(https://evil.example/pixel.gif)">x</div>',
+                '<svg><use href="https://evil.example/x.svg#g"></use></svg>',
+            ].join(''),
+        })
+
+        expect(html.toLowerCase()).not.toContain('srcset')
+        expect(html.toLowerCase()).not.toContain('javascript:')
+        expect(html.toLowerCase()).not.toContain('//evil.example')
+        expect(html.toLowerCase()).not.toContain('evil.example/pixel.gif')
+        expect(html.toLowerCase()).not.toContain('<use')
+        expect(html.toLowerCase()).not.toContain('<picture')
+    })
+})
 describe('capture planning', () => {
     it('keeps a readable scale when the document fits', () => {
         expect(chooseCaptureScale(800, 1200)).toEqual({

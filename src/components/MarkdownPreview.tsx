@@ -8,6 +8,7 @@ import remarkMath from 'remark-math'
 import {getBidiTextProps} from '../utils/bidiUtils'
 import {loadKatexPlugin} from '../utils/katexLoader'
 import {markdownNeedsKatex} from '../utils/previewReady'
+import {styleLooksSafe} from '../utils/styleSafety'
 import {isExternalHttpUrl, safeMarkdownUrl} from '../utils/urlSafety'
 
 const MermaidBlock = lazy(() => import('./MermaidBlock'))
@@ -25,10 +26,12 @@ function withoutStyle(list: AttrList | undefined): AttrList {
     })
 }
 
+const DROPPED_DEFAULT_TAGS = new Set(['picture', 'source', 'video', 'audio', 'track', 'input', 'textarea', 'select', 'option'])
+
 const sanitizeSchema = {
     ...defaultSchema,
     tagNames: [
-        ...(defaultSchema.tagNames || []),
+        ...(defaultSchema.tagNames || []).filter((tag) => !DROPPED_DEFAULT_TAGS.has(tag)),
         'math',
         'semantics',
         'mrow',
@@ -69,7 +72,8 @@ const sanitizeSchema = {
         '*': [
             ...withoutStyle(defaultSchema.attributes?.['*'] as AttrList | undefined).filter((item: AttrItem) => {
                 const name = typeof item === 'string' ? item : item[0]
-                return name !== 'className' && name !== 'class'
+                // Drop class/className globally (re-add per-tag). Drop action (no forms allowed).
+                return name !== 'className' && name !== 'class' && name !== 'action'
             }),
             'dir',
             'ariaHidden',
@@ -78,6 +82,7 @@ const sanitizeSchema = {
             'role',
         ],
         code: [...withoutStyle(defaultSchema.attributes?.code as AttrList | undefined), 'className', 'class', ['className', /^language-/] as AttrItem],
+        // style kept for KaTeX layout; values scrubbed by rehypeSafeStyles after sanitize.
         span: [...withoutStyle(defaultSchema.attributes?.span as AttrList | undefined), 'className', 'class', 'style'],
         div: [...withoutStyle(defaultSchema.attributes?.div as AttrList | undefined), 'className', 'class', 'style'],
         math: ['xmlns', 'display'],
@@ -103,13 +108,40 @@ const sanitizeSchema = {
             return name !== 'target' && name !== 'className' && name !== 'class'
         }), 'href', 'title', 'rel'],
         img: [...withoutStyle(defaultSchema.attributes?.img as AttrList | undefined), 'src', 'alt', 'title', 'width', 'height'],
+        // Explicit empty list so inherited srcSet cannot sneak back in.
+        source: [],
     },
     protocols: {
         ...(defaultSchema.protocols || {}),
         href: ['http', 'https', 'mailto'],
         src: ['https'],
+        // Defense in depth if source/srcSet is ever re-enabled.
+        srcSet: ['https'],
         cite: ['http', 'https'],
     },
+}
+
+type HastNode = {
+    type?: string
+    tagName?: string
+    properties?: Record<string, unknown>
+    children?: HastNode[]
+}
+
+/** Drop style attributes that contain network/data paint servers (CSS beacons). */
+function rehypeSafeStyles() {
+    return (tree: HastNode) => {
+        const walk = (node: HastNode) => {
+            if (node.type === 'element' && node.properties && 'style' in node.properties) {
+                const style = String(node.properties.style ?? '')
+                if (!style || !styleLooksSafe(style)) {
+                    delete node.properties.style
+                }
+            }
+            node.children?.forEach(walk)
+        }
+        walk(tree)
+    }
 }
 
 function extractPlainText(node: ReactNode): string {
@@ -220,6 +252,7 @@ export default function MarkdownPreview({markdown, theme}: MarkdownPreviewProps)
             ])
         }
         plugins.push([rehypeSanitize, sanitizeSchema])
+        plugins.push(rehypeSafeStyles)
         return plugins
     }, [rehypeKatexPlugin])
 
