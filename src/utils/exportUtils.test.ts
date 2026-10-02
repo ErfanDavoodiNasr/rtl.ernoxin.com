@@ -254,6 +254,9 @@ describe('capture planning', () => {
 
         const {host, target} = createCaptureRoot(source, '#ffffff')
         expect(host.style.overflow).toBe('visible')
+        expect(host.getAttribute('data-theme')).toBe('light')
+        expect(['#ffffff', 'rgb(255, 255, 255)']).toContain(host.style.background)
+        expect(['#1a1f2e', 'rgb(26, 31, 46)']).toContain(host.style.color)
         expect(target.classList.contains('markdown-body')).toBe(true)
         expect(target.textContent).toBe('متن بلند')
         expect(target).not.toBe(source)

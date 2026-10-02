@@ -1,15 +1,4 @@
-import {
-    type ChangeEvent,
-    type DragEvent,
-    lazy,
-    Suspense,
-    useCallback,
-    useDeferredValue,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
-} from 'react'
+import {lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState,} from 'react'
 import Logo from './components/Logo'
 import PreviewErrorBoundary from './components/PreviewErrorBoundary'
 import {ensureFontsReady, loadFontsForSettings} from './utils/fontLoader'
@@ -35,7 +24,6 @@ import {
 } from './utils/storageUtils'
 import {clearHistory, loadHistory, pushHistory, setHistoryLimitAndTrim,} from './utils/historyStore'
 import {insertClipboardText} from './utils/clipboardInsert'
-import {isImportableFile, readTextFile} from './utils/fileImport'
 import './App.css'
 
 const MarkdownPreview = lazy(() => import('./components/MarkdownPreview'))
@@ -58,6 +46,10 @@ function getFontStack(font: string): string {
             return "'Sahel', 'Vazirmatn', sans-serif"
         case 'Lalezar':
             return "'Lalezar', cursive, sans-serif"
+        case 'Noto Sans Arabic':
+            return "'Noto Sans Arabic', 'Vazirmatn', sans-serif"
+        case 'Noto Naskh Arabic':
+            return "'Noto Naskh Arabic', serif"
         case 'VazirCode':
             return "'Vazirmatn', monospace"
         case 'System':
@@ -72,6 +64,10 @@ function getFontStackEn(font: string): string {
     switch (font) {
         case 'Roboto':
             return "'Roboto', sans-serif"
+        case 'Poppins':
+            return "'Poppins', sans-serif"
+        case 'Plus Jakarta Sans':
+            return "'Plus Jakarta Sans', sans-serif"
         case 'JetBrains Mono':
             return "'JetBrains Mono', monospace"
         case 'Fira Code':
@@ -90,6 +86,10 @@ function getFontStackAr(font: string): string {
             return "'Cairo', sans-serif"
         case 'Scheherazade New':
             return "'Scheherazade New', serif"
+        case 'Almarai':
+            return "'Almarai', sans-serif"
+        case 'Readex Pro':
+            return "'Readex Pro', sans-serif"
         case 'Amiri':
         default:
             return "'Amiri', serif"
@@ -127,9 +127,7 @@ export default function App() {
         start: text.length,
         end: text.length,
     })
-    const fileInputRef = useRef<HTMLInputElement>(null)
     const historyBusyRef = useRef(false)
-    const importBusyRef = useRef(false)
 
     const deferredText = useDeferredValue(text)
     const processedMarkdown = useMemo(() => preprocessMarkdown(deferredText), [deferredText])
@@ -377,9 +375,13 @@ export default function App() {
 
             const current = textRef.current
             const textarea = textareaRef.current
-            const selection = textarea
-                ? {start: textarea.selectionStart ?? 0, end: textarea.selectionEnd ?? 0}
-                : lastCaretRef.current
+            const selection =
+                viewMode === 'preview' || !textarea
+                    ? null
+                    : {
+                        start: textarea.selectionStart ?? lastCaretRef.current.start,
+                        end: textarea.selectionEnd ?? lastCaretRef.current.end,
+                    }
 
             const inserted = insertClipboardText(current, clip, selection)
 
@@ -391,16 +393,11 @@ export default function App() {
 
             await rememberHistory(current, true)
 
-            if (!textarea) {
-                pendingCursorRef.current = inserted.cursor
-                setViewMode('raw')
-            }
-
             if (!applyTextChange(inserted.text)) return
             lastCaretRef.current = {start: inserted.cursor, end: inserted.cursor}
             showToast('متن از کلیپ‌بورد جایگذاری شد')
 
-            if (textarea) {
+            if (textarea && viewMode !== 'preview') {
                 requestAnimationFrame(() => {
                     textarea.focus()
                     textarea.setSelectionRange(inserted.cursor, inserted.cursor)
@@ -410,7 +407,7 @@ export default function App() {
             textareaRef.current?.focus()
             showToast('دسترسی به کلیپ‌بورد ممکن نیست')
         }
-    }, [showToast, applyTextChange, rememberHistory])
+    }, [showToast, applyTextChange, rememberHistory, viewMode])
 
     const handleClearDocument = useCallback(() => {
         if (!textRef.current.trim()) return
@@ -465,72 +462,6 @@ export default function App() {
             showToast('تاریخچه پاک شد')
         })
     }, [historyEntries.length, showToast])
-
-    const importFileContent = useCallback(async (file: File) => {
-        if (importBusyRef.current) {
-            showToast('ورود فایل قبلی هنوز تمام نشده')
-            return
-        }
-        importBusyRef.current = true
-        try {
-            const imported = await readTextFile(file)
-            if (!imported.trim()) {
-                showToast('فایل خالی است')
-                return
-            }
-            if (contentByteSize(imported) > MAX_CONTENT_BYTES) {
-                showToast(saveFailureMessage('too-large'))
-                setSaveWarning(saveFailureMessage('too-large'))
-                return
-            }
-            const snapshot = textRef.current
-            if (snapshot.trim() && snapshot !== imported) {
-                const ok = window.confirm('متن فعلی با محتوای فایل جایگزین شود؟ نسخهٔ فعلی در تاریخچه می‌ماند.')
-                if (!ok) return
-            }
-            // Wait briefly if autosave history is mid-flight, then force-push snapshot.
-            const deadline = Date.now() + 1500
-            while (historyBusyRef.current && Date.now() < deadline) {
-                await new Promise((r) => setTimeout(r, 20))
-            }
-            if (textRef.current !== snapshot) {
-                showToast('متن هنگام ورود فایل تغییر کرد؛ دوباره تلاش کنید')
-                return
-            }
-            await rememberHistory(snapshot, true)
-            if (textRef.current !== snapshot) {
-                showToast('متن هنگام ورود فایل تغییر کرد؛ دوباره تلاش کنید')
-                return
-            }
-            if (!applyTextChange(imported)) return
-            lastCaretRef.current = {start: imported.length, end: imported.length}
-            if (viewMode === 'preview') setViewMode('split')
-            showToast('فایل وارد شد')
-        } catch (err) {
-            const reason = err instanceof Error ? err.message : ''
-            if (reason === 'too-large') showToast(saveFailureMessage('too-large'))
-            else if (reason === 'binary') showToast('فایل باینری پشتیبانی نمی‌شود')
-            else showToast('خواندن فایل ممکن نیست')
-        } finally {
-            importBusyRef.current = false
-        }
-    }, [showToast, applyTextChange, rememberHistory, viewMode])
-
-    const handleFileInputChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0]
-        event.target.value = ''
-        if (file) void importFileContent(file)
-    }, [importFileContent])
-
-    const handleDropImport = useCallback((event: DragEvent) => {
-        event.preventDefault()
-        const file = event.dataTransfer.files?.[0]
-        if (!isImportableFile(file)) {
-            showToast('فقط فایل‌های .md و .txt پشتیبانی می‌شوند')
-            return
-        }
-        void importFileContent(file)
-    }, [importFileContent, showToast])
 
     const handleExport = useCallback(async (format: 'md' | 'html' | 'pdf' | 'png') => {
         if (isExporting) return
@@ -593,17 +524,17 @@ export default function App() {
             }
 
             if (format === 'html') {
-                await exportAsHtml(preview, theme, 'document.html', typography)
+                await exportAsHtml(preview, 'light', 'document.html', typography)
                 showToast('فایل HTML آفلاین دانلود شد')
             } else if (format === 'pdf') {
                 showToast('در حال ساخت فایل PDF...')
-                const result = await exportAsPdf(preview, theme, 'document.pdf')
+                const result = await exportAsPdf(preview, 'light', 'document.pdf')
                 showToast(result.truncated
                     ? 'فایل PDF دانلود شد، اما به‌خاطر طول سند ناقص است'
                     : 'فایل PDF دانلود شد')
             } else if (format === 'png') {
                 showToast('در حال ساخت تصویر...')
-                const result = await exportAsPng(preview, theme)
+                const result = await exportAsPng(preview, 'light')
                 showToast(result.truncated
                     ? 'تصویر PNG دانلود شد، اما به‌خاطر طول سند ناقص است'
                     : 'تصویر PNG دانلود شد')
@@ -622,7 +553,31 @@ export default function App() {
             if (switchedFromRaw) setViewMode(previousViewMode)
             setIsExporting(false)
         }
-    }, [theme, showToast, viewMode, readerSettings, isExporting])
+    }, [showToast, viewMode, readerSettings, isExporting])
+
+    useEffect(() => {
+        const handleWindowPaste = (e: ClipboardEvent) => {
+            if (document.activeElement === textareaRef.current) return
+            const clip = e.clipboardData?.getData('text/plain')
+            if (!clip) return
+            e.preventDefault()
+
+            const current = textRef.current
+            if (contentByteSize(clip) > MAX_CONTENT_BYTES) {
+                showToast(saveFailureMessage('too-large'))
+                setSaveWarning(saveFailureMessage('too-large'))
+                return
+            }
+
+            void rememberHistory(current, true)
+            if (!applyTextChange(clip)) return
+            lastCaretRef.current = {start: clip.length, end: clip.length}
+            showToast('متن از کلیپ‌بورد جایگذاری شد')
+        }
+
+        window.addEventListener('paste', handleWindowPaste)
+        return () => window.removeEventListener('paste', handleWindowPaste)
+    }, [showToast, applyTextChange, rememberHistory])
 
     useEffect(() => {
         function handleKeyDown(e: KeyboardEvent) {
@@ -632,7 +587,7 @@ export default function App() {
                 setIsHistoryOpen(false)
                 return
             }
-            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'v') {
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v' && document.activeElement !== textareaRef.current) {
                 e.preventDefault()
                 void handlePaste()
                 return
@@ -651,10 +606,6 @@ export default function App() {
         <section
             className="panel panel-input"
             aria-label="ورودی متن"
-            onDragOver={(e) => {
-                e.preventDefault()
-            }}
-            onDrop={handleDropImport}
         >
             <div className="panel-header">
                 <span className="panel-title">متن خود را اینجا بچسبانید</span>
@@ -676,15 +627,6 @@ export default function App() {
                 dir="auto"
                 spellCheck={false}
                 disabled={isExporting}
-            />
-            <input
-                ref={fileInputRef}
-                type="file"
-                accept=".md,.txt,.markdown,text/plain,text/markdown"
-                className="visually-hidden"
-                aria-hidden="true"
-                tabIndex={-1}
-                onChange={handleFileInputChange}
             />
         </section>
     )
@@ -732,7 +674,7 @@ export default function App() {
                             }
                         >
                             <PreviewErrorBoundary>
-                                <MarkdownPreview markdown={processedMarkdown} theme={theme}/>
+                                <MarkdownPreview markdown={processedMarkdown} theme={isExporting ? 'light' : theme}/>
                             </PreviewErrorBoundary>
                         </Suspense>
                     </article>
@@ -784,6 +726,8 @@ export default function App() {
                                         <option value="Samim">صمیم</option>
                                         <option value="Sahel">ساحل</option>
                                         <option value="Lalezar">لاله‌زار</option>
+                                        <option value="Noto Sans Arabic">نوتو سنس (Noto Sans)</option>
+                                        <option value="Noto Naskh Arabic">نوتو نسخ (Noto Naskh)</option>
                                         <option value="VazirCode">وزیر کد (کدنویسی)</option>
                                         <option value="System">فونت سیستم</option>
                                     </select>
@@ -803,9 +747,11 @@ export default function App() {
                                     >
                                         <option value="Inter">Inter (پیش‌فرض)</option>
                                         <option value="Roboto">Roboto</option>
+                                        <option value="Poppins">Poppins (پوپینز)</option>
+                                        <option value="Plus Jakarta Sans">Plus Jakarta Sans</option>
+                                        <option value="Outfit">Outfit</option>
                                         <option value="JetBrains Mono">JetBrains Mono (کد)</option>
                                         <option value="Fira Code">Fira Code (کد)</option>
-                                        <option value="Outfit">Outfit</option>
                                     </select>
                                 </div>
 
@@ -824,47 +770,49 @@ export default function App() {
                                         <option value="Amiri">امیری - Amiri (پیش‌فرض)</option>
                                         <option value="Cairo">قاهره - Cairo</option>
                                         <option value="Scheherazade New">شهرزاد - Scheherazade</option>
+                                        <option value="Almarai">المراعی - Almarai</option>
+                                        <option value="Readex Pro">ریدکس پرو - Readex Pro</option>
                                     </select>
                                 </div>
 
                                 <div className="settings-row">
                                     <div className="settings-label">
                                         <span>اندازه قلم</span>
+                                        <span className="settings-value">{readerSettings.fontSize}px</span>
                                     </div>
-                                    <select
-                                        className="settings-select"
+                                    <input
+                                        type="range"
+                                        className="settings-range"
+                                        min={12}
+                                        max={28}
+                                        step={1}
                                         value={readerSettings.fontSize}
                                         onChange={(e) => setReaderSettings((prev) => ({
                                             ...prev,
                                             fontSize: Number(e.target.value),
                                         }))}
-                                    >
-                                        <option value={15}>۱۵px (کوچک)</option>
-                                        <option value={17}>۱۷px (پیش‌فرض)</option>
-                                        <option value={19}>۱۹px (متوسط)</option>
-                                        <option value={21}>۲۱px (بزرگ)</option>
-                                        <option value={24}>۲۴px (خیلی بزرگ)</option>
-                                    </select>
+                                        aria-label="اندازه قلم"
+                                    />
                                 </div>
 
                                 <div className="settings-row">
                                     <div className="settings-label">
                                         <span>فاصله خطوط</span>
+                                        <span className="settings-value">{readerSettings.lineHeight.toFixed(1)}</span>
                                     </div>
-                                    <select
-                                        className="settings-select"
+                                    <input
+                                        type="range"
+                                        className="settings-range"
+                                        min={1.4}
+                                        max={2.8}
+                                        step={0.1}
                                         value={readerSettings.lineHeight}
                                         onChange={(e) => setReaderSettings((prev) => ({
                                             ...prev,
-                                            lineHeight: Number(e.target.value),
+                                            lineHeight: Number(Number(e.target.value).toFixed(1)),
                                         }))}
-                                    >
-                                        <option value={1.6}>۱.۶ (متراکم)</option>
-                                        <option value={1.8}>۱.۸ (استاندارد)</option>
-                                        <option value={2.0}>۲.۰ (پیش‌فرض)</option>
-                                        <option value={2.2}>۲.۲ (باز)</option>
-                                        <option value={2.4}>۲.۴ (خیلی باز)</option>
-                                    </select>
+                                        aria-label="فاصله خطوط"
+                                    />
                                 </div>
                             </div>
                         )}
@@ -990,17 +938,6 @@ export default function App() {
                     <button
                         type="button"
                         className="btn btn-ghost"
-                        onClick={() => fileInputRef.current?.click()}
-                        title="ورود فایل Markdown یا متن"
-                        aria-label="ورود فایل"
-                        disabled={isExporting}
-                    >
-                        <UploadIcon/>
-                        <span className="btn-label">ورود فایل</span>
-                    </button>
-                    <button
-                        type="button"
-                        className="btn btn-ghost"
                         onClick={handleClearDocument}
                         disabled={isEmpty}
                         title="پاک کردن سند"
@@ -1111,17 +1048,6 @@ function PasteIcon() {
              strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
             <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
-        </svg>
-    )
-}
-
-function UploadIcon() {
-    return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-             strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="17 8 12 3 7 8"/>
-            <line x1="12" y1="3" x2="12" y2="15"/>
         </svg>
     )
 }

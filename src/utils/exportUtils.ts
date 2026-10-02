@@ -393,19 +393,22 @@ export function planPdfSlices(
     return slices
 }
 
-export function createCaptureRoot(source: HTMLElement, background: string): {
+export function createCaptureRoot(source: HTMLElement, background = '#ffffff'): {
     host: HTMLElement
     target: HTMLElement
 } {
     const body = source.querySelector('.markdown-body')
     const targetSource = body instanceof HTMLElement ? body : source
     const computed = getComputedStyle(source)
-    const width = Math.max(source.clientWidth, targetSource.scrollWidth, 320)
+    // Standard A4 document content width (~794px = 210mm at 96 DPI).
+    // Clamping width ensures readable line lengths on A4 and prevents huge canvas bloat on ultra-wide screens.
+    const width = Math.min(Math.max(targetSource.scrollWidth, 794), 850)
 
     const host = document.createElement('div')
     host.setAttribute('data-export-capture', 'true')
+    host.setAttribute('data-theme', 'light')
     host.style.position = 'fixed'
-    host.style.left = `-${width + 80}px`
+    host.style.left = `-${width + 120}px`
     host.style.top = '0'
     host.style.zIndex = '-1'
     host.style.pointerEvents = 'none'
@@ -416,10 +419,25 @@ export function createCaptureRoot(source: HTMLElement, background: string): {
     host.style.boxSizing = 'border-box'
     host.style.padding = '24px'
     host.style.background = background
-    host.style.color = computed.color
+    host.style.color = '#1a1f2e'
+    host.style.colorScheme = 'light'
     host.style.fontFamily = computed.getPropertyValue('--preview-font-family').trim() || computed.fontFamily
     host.style.fontSize = computed.getPropertyValue('--preview-font-size').trim() || computed.fontSize
     host.style.lineHeight = computed.getPropertyValue('--preview-line-height').trim() || computed.lineHeight
+
+    // Explicitly inject light theme tokens so any var(--...) uses clean light colors
+    host.style.setProperty('--bg-base', '#f4f6fb')
+    host.style.setProperty('--bg-surface', '#ffffff')
+    host.style.setProperty('--bg-elevated', '#eef1f8')
+    host.style.setProperty('--border', 'rgba(0, 0, 0, 0.08)')
+    host.style.setProperty('--border-hover', 'rgba(0, 0, 0, 0.14)')
+    host.style.setProperty('--text-primary', '#1a1f2e')
+    host.style.setProperty('--text-secondary', '#5a6478')
+    host.style.setProperty('--text-muted', '#7e879c')
+    host.style.setProperty('--accent', '#2563eb')
+    host.style.setProperty('--bg-code-inline', 'rgba(0, 0, 0, 0.06)')
+    host.style.setProperty('--bg-table-stripe', 'rgba(0, 0, 0, 0.02)')
+
     host.style.setProperty('--preview-font-family', computed.getPropertyValue('--preview-font-family'))
     host.style.setProperty('--preview-font-en', computed.getPropertyValue('--preview-font-en'))
     host.style.setProperty('--preview-font-ar', computed.getPropertyValue('--preview-font-ar'))
@@ -433,6 +451,8 @@ export function createCaptureRoot(source: HTMLElement, background: string): {
     target.style.maxHeight = 'none'
     target.style.height = 'auto'
     target.style.width = '100%'
+    target.style.background = 'transparent'
+    target.style.color = '#1a1f2e'
     host.appendChild(target)
     return {host, target}
 }
@@ -441,10 +461,9 @@ export type RasterExportResult = { truncated: boolean }
 
 async function captureElement(
     element: HTMLElement,
-    theme: string,
 ): Promise<{ canvas: HTMLCanvasElement; truncated: boolean; background: string }> {
     const {default: html2canvas} = await import('html2canvas')
-    const background = theme === 'light' ? '#ffffff' : '#13161f'
+    const background = '#ffffff'
     const {host, target} = createCaptureRoot(element, background)
     document.body.appendChild(host)
 
@@ -489,10 +508,10 @@ async function captureElement(
 
 export async function exportAsPng(
     element: HTMLElement,
-    theme: string,
+    _theme = 'light',
     filename = 'document.png',
 ): Promise<RasterExportResult> {
-    const {canvas, truncated} = await captureElement(element, safeExportTheme(theme))
+    const {canvas, truncated} = await captureElement(element)
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
     if (!blob) throw new Error('Failed to encode PNG')
     downloadBlob(blob, filename)
@@ -503,7 +522,7 @@ export type PdfExportResult = RasterExportResult & {
     engine: 'raster-jpeg'
 }
 
-const PDF_JPEG_QUALITY = 0.82
+const PDF_JPEG_QUALITY = 0.80
 
 function canvasToJpegDataUrl(canvas: HTMLCanvasElement, quality = PDF_JPEG_QUALITY): string {
     return canvas.toDataURL('image/jpeg', quality)
@@ -511,17 +530,16 @@ function canvasToJpegDataUrl(canvas: HTMLCanvasElement, quality = PDF_JPEG_QUALI
 
 /**
  * Direct PDF download (same UX as MD/HTML/PNG).
- *
- * Uses html2canvas + jsPDF, but encodes page slices as JPEG with compression.
- * The old path used scale-2 PNG data URLs and produced ~tens of MB files.
+ * Always exports in clean, crisp white theme at optimized document dimensions.
  */
 export async function exportAsPdf(
     element: HTMLElement,
-    theme: string,
+    _theme = 'light',
     filename = 'document.pdf',
 ): Promise<PdfExportResult> {
     const {jsPDF} = await import('jspdf')
-    const {canvas, truncated, background} = await captureElement(element, safeExportTheme(theme))
+    const {canvas, truncated} = await captureElement(element)
+    const background = '#ffffff'
 
     const pdf = new jsPDF({
         orientation: 'portrait',

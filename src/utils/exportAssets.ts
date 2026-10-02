@@ -160,6 +160,18 @@ async function loadSecondaryFontCss(name: string): Promise<string> {
             return loadFontsourceFamily('Cairo', 'cairo', ['arabic', 'latin'])
         case 'Scheherazade New':
             return loadFontsourceFamily('Scheherazade New', 'scheherazade-new', ['arabic', 'latin'])
+        case 'Poppins':
+            return loadFontsourceFamily('Poppins', 'poppins', ['latin'])
+        case 'Plus Jakarta Sans':
+            return loadFontsourceFamily('Plus Jakarta Sans', 'plus-jakarta-sans', ['latin'])
+        case 'Almarai':
+            return loadFontsourceFamily('Almarai', 'almarai', ['arabic'])
+        case 'Readex Pro':
+            return loadFontsourceFamily('Readex Pro', 'readex-pro', ['arabic', 'latin'])
+        case 'Noto Sans Arabic':
+            return loadFontsourceFamily('Noto Sans Arabic', 'noto-sans-arabic', ['arabic'])
+        case 'Noto Naskh Arabic':
+            return loadFontsourceFamily('Noto Naskh Arabic', 'noto-naskh-arabic', ['arabic'])
         default:
             return ''
     }
@@ -231,6 +243,12 @@ async function loadReaderFontCss(typography: ReaderTypography): Promise<string> 
                     },
                 ]),
             )
+            break
+        case 'Noto Sans Arabic':
+            chunks.push(await loadSecondaryFontCss('Noto Sans Arabic'))
+            break
+        case 'Noto Naskh Arabic':
+            chunks.push(await loadSecondaryFontCss('Noto Naskh Arabic'))
             break
         default:
             break

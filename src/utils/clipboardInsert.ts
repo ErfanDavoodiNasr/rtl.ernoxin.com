@@ -13,10 +13,9 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /**
- * Insert clipboard text like a normal editor:
- * - with selection → replace selection
- * - with caret → insert at caret
- * - without a known selection → insert at document end (caret at end), no forced newline
+ * Insert clipboard text:
+ * - with selection → replace selection (or insert at caret if collapsed)
+ * - without a known selection (null) → replace the document with clipboard text
  */
 export function insertClipboardText(
     current: string,
@@ -37,6 +36,5 @@ export function insertClipboardText(
         return {text, cursor: start + clip.length}
     }
 
-    const text = current + clip
-    return {text, cursor: text.length}
+    return {text: clip, cursor: clip.length}
 }

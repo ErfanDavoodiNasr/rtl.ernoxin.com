@@ -73,6 +73,21 @@ describe('parseReaderSettings', () => {
         expect(result.lineHeight).toBe(1.8)
     })
 
+    it('accepts new fonts and slider range values', () => {
+        const result = parseReaderSettings(JSON.stringify({
+            fontFamily: 'Noto Sans Arabic',
+            fontFamilyEn: 'Poppins',
+            fontFamilyAr: 'Almarai',
+            fontSize: 16,
+            lineHeight: 2.1,
+        }))
+        expect(result.fontFamily).toBe('Noto Sans Arabic')
+        expect(result.fontFamilyEn).toBe('Poppins')
+        expect(result.fontFamilyAr).toBe('Almarai')
+        expect(result.fontSize).toBe(16)
+        expect(result.lineHeight).toBe(2.1)
+    })
+
     it('migrates removed Yekan font to Vazirmatn', () => {
         const result = parseReaderSettings(JSON.stringify({fontFamily: 'Yekan'}))
         expect(result.fontFamily).toBe('Vazirmatn')

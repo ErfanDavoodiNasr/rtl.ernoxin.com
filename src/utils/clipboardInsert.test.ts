@@ -48,13 +48,13 @@ describe('insertClipboardText', () => {
         })
     })
 
-    it('when selection is unknown, inserts at end without inventing a newline', () => {
+    it('when selection is unknown, replaces the document with clipboard text', () => {
         const result = insertClipboardText('متن قبلی', 'جدید', null)
-        expect(result.text).toBe('متن قبلیجدید')
-        expect(result.cursor).toBe(result.text.length)
+        expect(result.text).toBe('جدید')
+        expect(result.cursor).toBe(4)
     })
 
-    it('uses the clipboard as the document only when the current text is empty', () => {
+    it('uses the clipboard as the document when the current text is empty', () => {
         expect(insertClipboardText('', 'تازه', null)).toEqual({text: 'تازه', cursor: 4})
     })
 })

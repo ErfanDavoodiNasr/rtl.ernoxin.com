@@ -28,11 +28,38 @@ export type SaveContentResult =
 
 export type Theme = 'dark' | 'light'
 
-const FA_FONTS = new Set(['Vazirmatn', 'Shabnam', 'Samim', 'Sahel', 'Lalezar', 'VazirCode', 'System'])
-const EN_FONTS = new Set(['Inter', 'Roboto', 'JetBrains Mono', 'Fira Code', 'Outfit'])
-const AR_FONTS = new Set(['Amiri', 'Cairo', 'Scheherazade New'])
-const FONT_SIZES = new Set([15, 17, 19, 21, 24])
-const LINE_HEIGHTS = new Set([1.6, 1.8, 2.0, 2.2, 2.4])
+export const MIN_FONT_SIZE = 12
+export const MAX_FONT_SIZE = 32
+export const MIN_LINE_HEIGHT = 1.2
+export const MAX_LINE_HEIGHT = 3.0
+
+const FA_FONTS = new Set([
+    'Vazirmatn',
+    'Shabnam',
+    'Samim',
+    'Sahel',
+    'Lalezar',
+    'Noto Sans Arabic',
+    'Noto Naskh Arabic',
+    'VazirCode',
+    'System',
+])
+const EN_FONTS = new Set([
+    'Inter',
+    'Roboto',
+    'Poppins',
+    'Plus Jakarta Sans',
+    'Outfit',
+    'JetBrains Mono',
+    'Fira Code',
+])
+const AR_FONTS = new Set([
+    'Amiri',
+    'Cairo',
+    'Scheherazade New',
+    'Almarai',
+    'Readex Pro',
+])
 
 export interface ReaderSettings {
     fontFamily: string
@@ -54,9 +81,10 @@ function pickString(value: unknown, allowed: Set<string>, fallback: string): str
     return typeof value === 'string' && allowed.has(value) ? value : fallback
 }
 
-function pickNumber(value: unknown, allowed: Set<number>, fallback: number): number {
+function pickNumberRange(value: unknown, min: number, max: number, fallback: number): number {
     const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
-    return allowed.has(n) ? n : fallback
+    if (Number.isNaN(n) || !Number.isFinite(n) || n < min || n > max) return fallback
+    return Math.round(n * 100) / 100
 }
 
 export function parseReaderSettings(raw: string | null): ReaderSettings {
@@ -70,8 +98,8 @@ export function parseReaderSettings(raw: string | null): ReaderSettings {
             fontFamily,
             fontFamilyEn: pickString(parsed.fontFamilyEn, EN_FONTS, DEFAULT_READER_SETTINGS.fontFamilyEn),
             fontFamilyAr: pickString(parsed.fontFamilyAr, AR_FONTS, DEFAULT_READER_SETTINGS.fontFamilyAr),
-            fontSize: pickNumber(parsed.fontSize, FONT_SIZES, DEFAULT_READER_SETTINGS.fontSize),
-            lineHeight: pickNumber(parsed.lineHeight, LINE_HEIGHTS, DEFAULT_READER_SETTINGS.lineHeight),
+            fontSize: pickNumberRange(parsed.fontSize, MIN_FONT_SIZE, MAX_FONT_SIZE, DEFAULT_READER_SETTINGS.fontSize),
+            lineHeight: pickNumberRange(parsed.lineHeight, MIN_LINE_HEIGHT, MAX_LINE_HEIGHT, DEFAULT_READER_SETTINGS.lineHeight),
         }
     } catch {
         return DEFAULT_READER_SETTINGS

@@ -85,6 +85,42 @@ export async function loadFontFamily(name: string): Promise<void> {
                 await import('@fontsource/scheherazade-new/700.css')
             })
             break
+        case 'Noto Sans Arabic':
+            await loadOnce('Noto Sans Arabic', async () => {
+                await import('@fontsource/noto-sans-arabic/400.css')
+                await import('@fontsource/noto-sans-arabic/700.css')
+            })
+            break
+        case 'Noto Naskh Arabic':
+            await loadOnce('Noto Naskh Arabic', async () => {
+                await import('@fontsource/noto-naskh-arabic/400.css')
+                await import('@fontsource/noto-naskh-arabic/700.css')
+            })
+            break
+        case 'Poppins':
+            await loadOnce('Poppins', async () => {
+                await import('@fontsource/poppins/400.css')
+                await import('@fontsource/poppins/700.css')
+            })
+            break
+        case 'Plus Jakarta Sans':
+            await loadOnce('Plus Jakarta Sans', async () => {
+                await import('@fontsource/plus-jakarta-sans/400.css')
+                await import('@fontsource/plus-jakarta-sans/700.css')
+            })
+            break
+        case 'Almarai':
+            await loadOnce('Almarai', async () => {
+                await import('@fontsource/almarai/400.css')
+                await import('@fontsource/almarai/700.css')
+            })
+            break
+        case 'Readex Pro':
+            await loadOnce('Readex Pro', async () => {
+                await import('@fontsource/readex-pro/400.css')
+                await import('@fontsource/readex-pro/700.css')
+            })
+            break
     }
 }
 
